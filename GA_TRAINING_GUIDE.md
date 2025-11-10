@@ -57,7 +57,57 @@ python train_ga.py --generations 50 --lookahead --visualize
 | `--games` | Games per fitness evaluation | 5 |
 | `--lookahead` | Enable one-piece lookahead | OFF |
 | `--visualize` `-v` | **Show real-time graph!** 📊 | OFF |
+| `--seeds` | Seed with 4 known good strategies | OFF (pure evolution) |
+| `--no-save-every` | Save only every 10 gens | OFF (saves every gen) |
 | `--quick` | Quick test mode | OFF |
+
+## 🧪 Pure Evolution vs Seeded Training
+
+### Pure Evolution (Default)
+```bash
+# Start with completely random weights
+python train_ga.py --generations 50
+```
+
+**Characteristics:**
+- ✅ Tests if GA can discover strategies from scratch
+- ✅ True evolutionary approach
+- ✅ May discover novel strategies
+- ⏱️ Slower convergence (starts at ~10-100 lines)
+- 🎲 Higher variance in results
+
+### Seeded Training
+```bash
+# Start with 4 known good strategies
+python train_ga.py --generations 50 --seeds
+```
+
+**Seed Strategies (4 individuals):**
+1. **Lee (2013)** - ~513 lines (proven GA-optimized)
+2. **Defensive** - ~1,000 lines (high hole penalty)
+3. **Aggressive** - Unknown (prioritizes line clears)
+4. **Balanced** - Unknown (middle ground)
+
+**Characteristics:**
+- ✅ Faster convergence (starts at ~513-1,000 lines)
+- ✅ Guaranteed baseline performance
+- ✅ Explores multiple strategic directions
+- ⚠️ May get stuck in local optima
+- ⚠️ Less exploration of novel approaches
+
+### Which Should You Use?
+
+**Use Pure Evolution (default) when:**
+- 🔬 You want to test if GA can discover from scratch
+- 🎓 You're researching evolutionary algorithms
+- 🆕 You want to find novel strategies
+- ⏰ You have time for longer training
+
+**Use Seeded (`--seeds`) when:**
+- ⚡ You want faster convergence
+- 🎯 You want guaranteed good results
+- 📈 You're building on proven strategies
+- ⏱️ You have limited training time
 
 ## 📊 Visualization (NEW!)
 

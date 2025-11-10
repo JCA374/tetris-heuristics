@@ -88,25 +88,34 @@ class GeneticAlgorithm:
             weights[feature] = random.uniform(low, high)
         return weights
 
-    def create_initial_population(self):
-        """Create initial random population with some seeded good weights."""
+    def create_initial_population(self, use_seeds=False):
+        """
+        Create initial random population.
+
+        Args:
+            use_seeds: If True, seed population with known good strategies (default: False)
+
+        Returns:
+            List of weight dictionaries
+        """
         population = []
 
-        # Add known good weights as seeds
-        seeds = [
-            # Lee (2013) - our current default
-            {'height': -0.510066, 'lines': 0.760666, 'holes': -0.35663, 'bumpiness': -0.184483},
-            # Defensive strategy
-            {'height': -0.600000, 'lines': 0.500000, 'holes': -0.800000, 'bumpiness': -0.300000},
-            # Aggressive (prioritize lines)
-            {'height': -0.400000, 'lines': 1.000000, 'holes': -0.300000, 'bumpiness': -0.150000},
-            # Balanced
-            {'height': -0.550000, 'lines': 0.650000, 'holes': -0.550000, 'bumpiness': -0.250000},
-        ]
+        if use_seeds:
+            # Add known good weights as seeds
+            seeds = [
+                # Lee (2013) - our current default
+                {'height': -0.510066, 'lines': 0.760666, 'holes': -0.35663, 'bumpiness': -0.184483},
+                # Defensive strategy
+                {'height': -0.600000, 'lines': 0.500000, 'holes': -0.800000, 'bumpiness': -0.300000},
+                # Aggressive (prioritize lines)
+                {'height': -0.400000, 'lines': 1.000000, 'holes': -0.300000, 'bumpiness': -0.150000},
+                # Balanced
+                {'height': -0.550000, 'lines': 0.650000, 'holes': -0.550000, 'bumpiness': -0.250000},
+            ]
 
-        for seed in seeds:
-            if len(population) < self.population_size:
-                population.append(seed)
+            for seed in seeds:
+                if len(population) < self.population_size:
+                    population.append(seed)
 
         # Fill rest with random
         while len(population) < self.population_size:
@@ -496,7 +505,7 @@ class GeneticAlgorithm:
 
         plt.close(fig)
 
-    def run(self, generations=100, verbose=True, save_checkpoints=True, save_every_gen=True, visualize=False):
+    def run(self, generations=100, verbose=True, save_checkpoints=True, save_every_gen=True, visualize=False, use_seeds=False):
         """
         Run the genetic algorithm.
 
@@ -506,6 +515,7 @@ class GeneticAlgorithm:
             save_checkpoints: Save best weights periodically
             save_every_gen: Save checkpoint and graphs after every generation (default: True)
             visualize: Show real-time visualization
+            use_seeds: Start with known good strategies (default: False - pure evolution)
         """
         # Create log directory with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -523,6 +533,7 @@ class GeneticAlgorithm:
             print(f"Generations: {generations}")
             print(f"Visualization: {'ON 📊' if visualize else 'OFF'}")
             print(f"Save every generation: {'YES' if save_every_gen else 'NO'}")
+            print(f"Seeded start: {'YES (4 known strategies)' if use_seeds else 'NO (pure evolution)'}")
             print(f"\nMutation rate: {self.mutation_rate}")
             print(f"Mutation strength: {self.mutation_strength}")
             print(f"Crossover rate: {self.crossover_rate}")
@@ -530,6 +541,11 @@ class GeneticAlgorithm:
             print(f"Tournament size: {self.tournament_size}")
             print("\n" + "=" * 70)
             print("\nInitializing population...")
+            if use_seeds:
+                print(f"   Using 4 seed strategies (Lee, Defensive, Aggressive, Balanced)")
+                print(f"   + {self.population_size - 4} random individuals")
+            else:
+                print(f"   Pure evolution: All {self.population_size} individuals random")
 
         # Initialize visualization if requested
         viz_data = None
@@ -543,7 +559,7 @@ class GeneticAlgorithm:
                     print("📊 Real-time visualization enabled!")
 
         # Create initial population
-        population = self.create_initial_population()
+        population = self.create_initial_population(use_seeds=use_seeds)
 
         start_time = time.time()
 
@@ -718,6 +734,8 @@ def main():
                         help='Show real-time evolution graph (requires matplotlib)')
     parser.add_argument('--no-save-every', action='store_true',
                         help='Do NOT save after every generation (saves only every 10)')
+    parser.add_argument('--seeds', action='store_true',
+                        help='Seed population with 4 known good strategies (default: pure evolution)')
     parser.add_argument('--quick', action='store_true',
                         help='Quick test: 10 gens, 20 pop, 3 games')
 
@@ -740,7 +758,8 @@ def main():
     best_weights = ga.run(
         generations=args.generations,
         visualize=args.visualize,
-        save_every_gen=not args.no_save_every  # Default to True unless --no-save-every is specified
+        save_every_gen=not args.no_save_every,  # Default to True unless --no-save-every is specified
+        use_seeds=args.seeds  # Default to False unless --seeds is specified
     )
 
     # Save final results
