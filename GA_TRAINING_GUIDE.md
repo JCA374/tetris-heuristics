@@ -70,20 +70,35 @@ pip install matplotlib
 
 ### What You'll See
 
-Two live-updating plots in a window:
+Five live-updating plots in a window (3×2 grid layout):
 
-**Top Plot - Fitness Evolution:**
+**Top Plot - Fitness Evolution (full width):**
 - 🟢 **Green line**: Best individual each generation (going up!)
 - 🔵 **Blue line**: Population average
 - **Shaded area**: Range from worst to best
 - **Title**: Shows current best fitness
 
-**Bottom Plot - Weight Evolution:**
+**Middle Left - Weight Evolution Over Time:**
 - 🔴 **Red**: height weight
 - 🟢 **Green**: lines weight
 - 🟠 **Orange**: holes weight
 - 🟣 **Purple**: bumpiness weight
 - Watch weights converge as GA finds optimal values!
+
+**Middle Right - Current Generation Stats:**
+- 📊 **Bar chart** showing Best/Average/Worst for current generation
+- Green (Best), Blue (Average), Red (Worst)
+- Values labeled on each bar
+
+**Bottom Left - Current Best Weights:**
+- 📊 **Bar chart** showing the 4 weight values from current best individual
+- Color-coded: Red (height), Green (lines), Orange (holes), Purple (bumpiness)
+- Shows both positive and negative weights clearly with zero line
+
+**Bottom Right - Weight Change from Generation 1:**
+- 📊 **Bar chart** showing how much each weight has changed since generation 1
+- Blue bars = weight increased, Orange bars = weight decreased
+- Helps you see which weights are evolving most!
 
 ### Example Output
 ```

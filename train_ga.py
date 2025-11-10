@@ -238,34 +238,48 @@ class GeneticAlgorithm:
             return None
 
         plt.ion()  # Turn on interactive mode
-        fig = plt.figure(figsize=(14, 8))
+        fig = plt.figure(figsize=(16, 10))
 
-        # Create grid layout: 2 rows, 2 columns
-        gs = fig.add_gridspec(2, 2, hspace=0.3, wspace=0.3)
+        # Create grid layout: 3 rows, 2 columns
+        gs = fig.add_gridspec(3, 2, hspace=0.35, wspace=0.3)
 
-        # Top left: Fitness over generations
-        ax1 = fig.add_subplot(gs[0, :])  # Spans both columns
+        # Top: Fitness over generations (spans both columns)
+        ax1 = fig.add_subplot(gs[0, :])
         ax1.set_xlabel('Generation')
         ax1.set_ylabel('Lines Cleared')
         ax1.set_title('🧬 Genetic Algorithm Evolution')
         ax1.grid(True, alpha=0.3)
 
-        # Bottom left: Weight evolution
+        # Middle left: Weight evolution over time
         ax2 = fig.add_subplot(gs[1, 0])
         ax2.set_xlabel('Generation')
         ax2.set_ylabel('Weight Value')
-        ax2.set_title('Weight Evolution')
+        ax2.set_title('Weight Evolution Over Time')
         ax2.grid(True, alpha=0.3)
 
-        # Bottom right: Current generation bar chart
+        # Middle right: Current generation stats bar chart
         ax3 = fig.add_subplot(gs[1, 1])
         ax3.set_ylabel('Lines Cleared')
         ax3.set_title('Current Generation Stats')
         ax3.grid(True, alpha=0.3, axis='y')
 
-        return fig, ax1, ax2, ax3
+        # Bottom left: Current best weights bar chart
+        ax4 = fig.add_subplot(gs[2, 0])
+        ax4.set_ylabel('Weight Value')
+        ax4.set_title('Current Best Weights')
+        ax4.grid(True, alpha=0.3, axis='y')
+        ax4.axhline(y=0, color='black', linestyle='-', alpha=0.5, linewidth=1)
 
-    def update_visualization(self, fig, ax1, ax2, ax3):
+        # Bottom right: Weight change from start
+        ax5 = fig.add_subplot(gs[2, 1])
+        ax5.set_ylabel('Change from Initial')
+        ax5.set_title('Weight Change from Generation 1')
+        ax5.grid(True, alpha=0.3, axis='y')
+        ax5.axhline(y=0, color='black', linestyle='-', alpha=0.5, linewidth=1)
+
+        return fig, ax1, ax2, ax3, ax4, ax5
+
+    def update_visualization(self, fig, ax1, ax2, ax3, ax4, ax5):
         """Update the visualization with current generation data."""
         if not MATPLOTLIB_AVAILABLE or not self.history:
             return
@@ -322,6 +336,74 @@ class GeneticAlgorithm:
         ax3.set_title(f'Generation {current["generation"]} Stats')
         ax3.grid(True, alpha=0.3, axis='y')
         ax3.set_ylim(0, max(values) * 1.2)  # Add 20% padding
+
+        # Current best weights bar chart
+        ax4.clear()
+        current_weights = self.history[-1]['best_weights']
+        weight_names = ['height', 'lines', 'holes', 'bumpiness']
+        weight_values = [current_weights[name] for name in weight_names]
+        weight_colors = ['#e74c3c', '#2ecc71', '#f39c12', '#9b59b6']  # Red, Green, Orange, Purple
+
+        bars4 = ax4.bar(weight_names, weight_values, color=weight_colors, alpha=0.7, edgecolor='black')
+
+        # Add value labels on bars
+        for bar, value in zip(bars4, weight_values):
+            height = bar.get_height()
+            y_pos = height if height > 0 else height - 0.05
+            va = 'bottom' if height > 0 else 'top'
+            ax4.text(bar.get_x() + bar.get_width()/2., y_pos,
+                    f'{value:+.3f}',
+                    ha='center', va=va, fontsize=9, fontweight='bold')
+
+        ax4.set_ylabel('Weight Value')
+        ax4.set_title(f'Current Best Weights (Gen {current["generation"]})')
+        ax4.grid(True, alpha=0.3, axis='y')
+        ax4.axhline(y=0, color='black', linestyle='-', alpha=0.5, linewidth=1)
+
+        # Set y-limits to show both positive and negative values clearly
+        max_abs = max(abs(min(weight_values)), abs(max(weight_values)))
+        ax4.set_ylim(-max_abs * 1.2, max_abs * 1.2)
+
+        # Weight change from generation 1
+        ax5.clear()
+        if len(self.history) > 1:
+            initial_weights = self.history[0]['best_weights']
+            current_weights = self.history[-1]['best_weights']
+
+            weight_changes = [current_weights[name] - initial_weights[name] for name in weight_names]
+            change_colors = ['#3498db' if change >= 0 else '#e67e22' for change in weight_changes]
+
+            bars5 = ax5.bar(weight_names, weight_changes, color=change_colors, alpha=0.7, edgecolor='black')
+
+            # Add value labels on bars
+            for bar, value in zip(bars5, weight_changes):
+                height = bar.get_height()
+                y_pos = height if height > 0 else height - 0.02
+                va = 'bottom' if height > 0 else 'top'
+                ax5.text(bar.get_x() + bar.get_width()/2., y_pos,
+                        f'{value:+.3f}',
+                        ha='center', va=va, fontsize=9, fontweight='bold')
+
+            ax5.set_ylabel('Change from Initial')
+            ax5.set_title('Weight Change from Generation 1')
+            ax5.grid(True, alpha=0.3, axis='y')
+            ax5.axhline(y=0, color='black', linestyle='-', alpha=0.5, linewidth=1)
+
+            # Set y-limits
+            if weight_changes:
+                max_abs_change = max(abs(min(weight_changes)), abs(max(weight_changes)))
+                if max_abs_change > 0:
+                    ax5.set_ylim(-max_abs_change * 1.3, max_abs_change * 1.3)
+        else:
+            # First generation - no change yet
+            ax5.bar(weight_names, [0, 0, 0, 0], color='gray', alpha=0.3)
+            ax5.set_ylabel('Change from Initial')
+            ax5.set_title('Weight Change from Generation 1')
+            ax5.grid(True, alpha=0.3, axis='y')
+            ax5.axhline(y=0, color='black', linestyle='-', alpha=0.5, linewidth=1)
+            ax5.text(0.5, 0.5, 'No change yet\n(First generation)',
+                    transform=ax5.transAxes, ha='center', va='center',
+                    fontsize=10, color='gray')
 
         plt.tight_layout()
         plt.pause(0.01)  # Small pause to update display
@@ -439,8 +521,8 @@ class GeneticAlgorithm:
 
             # Update visualization
             if viz_data:
-                fig, ax1, ax2, ax3 = viz_data
-                self.update_visualization(fig, ax1, ax2, ax3)
+                fig, ax1, ax2, ax3, ax4, ax5 = viz_data
+                self.update_visualization(fig, ax1, ax2, ax3, ax4, ax5)
 
             # Save checkpoint
             if save_checkpoints:
