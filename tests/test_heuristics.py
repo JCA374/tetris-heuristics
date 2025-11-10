@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from tetris_game import TetrisGame
 from tetris_ai import TetrisAI
-from tetris_pieces import I_PIECE, O_PIECE, T_PIECE, J_PIECE
+from tetris_pieces import I_PIECE, O_PIECE, T_PIECE, J_PIECE, S_PIECE, Z_PIECE, L_PIECE, ALL_PIECES
 
 
 def test_empty_board():
@@ -167,6 +167,160 @@ def test_line_clearing():
     print("  ✓ Line clearing tests passed")
 
 
+def test_move_generation():
+    """Test that all pieces generate correct number of moves."""
+    print("Testing move generation...")
+    game = TetrisGame()
+
+    # Test each piece type
+    move_counts = {
+        'I': (17, 'I-piece should have ~17 moves'),  # 2 rotations × ~8-9 positions
+        'O': (9, 'O-piece should have ~9 moves'),     # 1 rotation × 9 positions
+        'T': (34, 'T-piece should have ~34 moves'),   # 4 rotations × ~8-9 positions
+        'S': (17, 'S-piece should have ~17 moves'),   # 2 rotations
+        'Z': (17, 'Z-piece should have ~17 moves'),   # 2 rotations
+        'J': (34, 'J-piece should have ~34 moves'),   # 4 rotations
+        'L': (34, 'L-piece should have ~34 moves'),   # 4 rotations
+    }
+
+    for piece in ALL_PIECES:
+        moves = game.get_all_possible_moves(piece)
+        expected, msg = move_counts[piece.name]
+        # Allow some variance since exact count depends on board state
+        assert len(moves) >= expected - 5, f"{msg}, got {len(moves)}"
+
+    print("  ✓ Move generation tests passed")
+
+
+def test_multiple_line_clears():
+    """Test clearing 2, 3, and 4 lines at once."""
+    print("Testing multiple line clears...")
+    game = TetrisGame()
+
+    # Fill bottom 4 rows except last column
+    for row in range(16, 20):
+        for col in range(9):
+            game.board[row][col] = 'X'
+
+    # Complete all 4 lines
+    for row in range(16, 20):
+        game.board[row][9] = 'X'
+
+    lines = game.clear_lines()
+    assert lines == 4, f"Should clear 4 lines, cleared {lines}"
+
+    # Verify all 4 rows are now empty
+    for row in range(16, 20):
+        assert all(cell == 0 for cell in game.board[row]), f"Row {row} should be empty"
+
+    print("  ✓ Multiple line clear tests passed")
+
+
+def test_game_over():
+    """Test game over detection."""
+    print("Testing game over detection...")
+    game = TetrisGame()
+
+    # Fill board completely to top (row 0 and 1)
+    for row in range(20):
+        for col in range(10):
+            game.board[row][col] = 'X'
+
+    # Try to place a piece - should cause game over (collision at spawn)
+    result = game.place_piece(I_PIECE, 0, 0)
+
+    # Game should be marked as over after failed placement
+    assert game.game_over == True, "Game should be marked as over when board is completely full"
+    assert result == False, "Placing piece should return False when game is over"
+
+    print("  ✓ Game over detection tests passed")
+
+
+def test_all_pieces():
+    """Test that all 7 pieces can be placed."""
+    print("Testing all 7 piece types...")
+
+    for piece in ALL_PIECES:
+        game = TetrisGame()
+        ai = TetrisAI()
+
+        # AI should find a valid move for each piece
+        move = ai.get_best_move(game, piece)
+        assert move is not None, f"AI should find move for {piece.name}-piece"
+
+        # Verify the move is valid
+        rotation, col = move
+        assert game.get_drop_row(piece, rotation, col) >= 0, \
+            f"Move for {piece.name}-piece should be valid"
+
+    print("  ✓ All piece types tests passed")
+
+
+def test_scoring():
+    """Test score calculation."""
+    print("Testing score calculation...")
+    game = TetrisGame()
+
+    initial_score = game.score
+    assert initial_score == 0, "Initial score should be 0"
+
+    # Fill bottom row almost completely
+    for col in range(6):
+        game.board[19][col] = 'X'
+
+    # Place a piece that completes the line
+    # I-piece horizontal should complete the line
+    game.place_piece(I_PIECE, 0, 6)  # 4-wide piece at column 6
+
+    # Score should be updated (1 line = 40 points)
+    assert game.score == 40, f"Clearing 1 line should give 40 points, got {game.score}"
+    assert game.lines_cleared == 1, f"Should have cleared 1 line, got {game.lines_cleared}"
+
+    print("  ✓ Scoring tests passed")
+
+
+def test_edge_cases():
+    """Test edge cases like pieces near walls."""
+    print("Testing edge cases...")
+    game = TetrisGame()
+
+    # Test placing at left edge
+    result = game.place_piece(I_PIECE, 0, 0)
+    assert result == True, "Should be able to place at left edge"
+
+    # Test placing at right edge
+    game.reset()
+    result = game.place_piece(O_PIECE, 0, 8)  # O is 2 wide, so column 8 is rightmost
+    assert result == True, "Should be able to place at right edge"
+
+    # Test invalid placement (out of bounds)
+    game.reset()
+    moves = game.get_all_possible_moves(I_PIECE)
+    # Verify no moves go out of bounds
+    for rotation, col in moves:
+        assert col >= 0 and col < game.width, f"Move column {col} should be in bounds"
+
+    print("  ✓ Edge case tests passed")
+
+
+def test_hole_multiple():
+    """Test detecting multiple holes."""
+    print("Testing multiple hole detection...")
+    game = TetrisGame()
+    ai = TetrisAI()
+
+    # Create 3 holes in different columns
+    for col in [1, 3, 5]:
+        game.board[19][col] = 'X'  # Bottom
+        game.board[18][col] = 0    # Hole
+        game.board[17][col] = 'X'  # Top
+
+    holes = ai.calculate_holes(game)
+    assert holes == 3, f"Should detect 3 holes, got {holes}"
+
+    print("  ✓ Multiple hole detection tests passed")
+
+
 def run_all_tests():
     """Run all unit tests."""
     print("\n" + "=" * 50)
@@ -177,11 +331,18 @@ def run_all_tests():
         test_empty_board,
         test_aggregate_height,
         test_holes,
+        test_hole_multiple,
         test_bumpiness,
         test_complete_lines,
+        test_multiple_line_clears,
         test_ai_move_selection,
+        test_all_pieces,
+        test_move_generation,
         test_game_simulation,
-        test_line_clearing
+        test_line_clearing,
+        test_game_over,
+        test_scoring,
+        test_edge_cases
     ]
 
     passed = 0
