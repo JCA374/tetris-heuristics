@@ -45,17 +45,17 @@ CELL_SIZE = 30
 BOARD_WIDTH = 10
 BOARD_HEIGHT = 20
 BOARD_X = 50
-BOARD_Y = 50
+BOARD_Y = 80
 
 # UI Layout
-PREVIEW_X = BOARD_X + BOARD_WIDTH * CELL_SIZE + 40
+PREVIEW_X = BOARD_X + BOARD_WIDTH * CELL_SIZE + 50
 PREVIEW_Y = BOARD_Y
 STATS_X = PREVIEW_X
-STATS_Y = PREVIEW_Y + 200
+STATS_Y = PREVIEW_Y + 370
 
 # Window size
-WINDOW_WIDTH = 700
-WINDOW_HEIGHT = 650
+WINDOW_WIDTH = 750
+WINDOW_HEIGHT = 720
 
 # FPS
 FPS = 60
@@ -141,8 +141,9 @@ class TetrisGameGUI:
                 if cell_value == 0:
                     color = DARK_GRAY
                 else:
-                    # We don't track piece types in the board, so use gray for filled cells
-                    color = GRAY
+                    # Use a nice cyan/blue color for all placed pieces
+                    # Creates a cohesive "stacked blocks" appearance
+                    color = (80, 180, 220)  # Nice light blue
 
                 self.draw_cell(x, y, color, border=True)
 
