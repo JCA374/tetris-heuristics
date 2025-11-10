@@ -208,7 +208,7 @@ def main():
         play_games(weights, num_games=args.games, use_lookahead=args.lookahead)
 
     print("\n💡 Tip: Use these weights in main.py:")
-    print(f"  python src/main.py --weights {weights['height']:.6f},{weights['lines']:.6f},{weights['holes']:.6f},{weights['bumpiness']:.6f}")
+    print(f'  python src/main.py --weights="{weights["height"]:.6f},{weights["lines"]:.6f},{weights["holes"]:.6f},{weights["bumpiness"]:.6f}"')
 
 
 if __name__ == '__main__':

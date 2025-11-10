@@ -748,7 +748,7 @@ def main():
 
     print("\n✅ Done! Best weights saved to ga_final_results.json")
     print("\nTo use these weights:")
-    print(f"  python src/main.py --weights {best_weights['height']:.6f},{best_weights['lines']:.6f},{best_weights['holes']:.6f},{best_weights['bumpiness']:.6f}")
+    print(f'  python src/main.py --weights="{best_weights["height"]:.6f},{best_weights["lines"]:.6f},{best_weights["holes"]:.6f},{best_weights["bumpiness"]:.6f}"')
 
 
 if __name__ == '__main__':

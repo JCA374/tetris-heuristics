@@ -152,10 +152,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                    # Run one game with visualization
-  %(prog)s --games 10         # Run 10 games and show statistics
-  %(prog)s --verbose          # Show detailed move information
-  %(prog)s --test             # Run quick test game
+  %(prog)s                              # Run one game with visualization
+  %(prog)s --games 10                   # Run 10 games and show statistics
+  %(prog)s --verbose                    # Show detailed move information
+  %(prog)s --test                       # Run quick test game
+  %(prog)s --weights="-0.5,0.8,-0.3,-0.2"  # Use custom weights
         """
     )
 
@@ -193,7 +194,7 @@ Examples:
     parser.add_argument(
         '--weights',
         type=str,
-        help='Custom weights as "h,l,o,b" (height,lines,holes,bumpiness)'
+        help='Custom weights: --weights="h,l,o,b" (height,lines,holes,bumpiness)'
     )
 
     args = parser.parse_args()
@@ -216,7 +217,7 @@ Examples:
                 print(f"  {key}: {val}")
         except Exception as e:
             print(f"Error parsing weights: {e}")
-            print("Format: --weights h,l,o,b (e.g., --weights -0.5,0.8,-0.3,-0.2)")
+            print('Format: --weights="h,l,o,b" (e.g., --weights="-0.5,0.8,-0.3,-0.2")')
             sys.exit(1)
     else:
         print("\nUsing default weights:")
