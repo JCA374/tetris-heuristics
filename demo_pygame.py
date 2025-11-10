@@ -141,9 +141,9 @@ class TetrisGameGUI:
                 if cell_value == 0:
                     color = DARK_GRAY
                 else:
-                    # Use a nice cyan/blue color for all placed pieces
-                    # Creates a cohesive "stacked blocks" appearance
-                    color = (80, 180, 220)  # Nice light blue
+                    # Use the piece's original color!
+                    # cell_value contains the piece name ('I', 'O', 'T', etc.)
+                    color = COLORS.get(cell_value, GRAY)
 
                 self.draw_cell(x, y, color, border=True)
 
