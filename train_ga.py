@@ -377,6 +377,10 @@ class GeneticAlgorithm:
                 self.best_ever_fitness = max_fitness
                 self.best_ever_weights = best_weights.copy()
 
+                # Save best model immediately when improved!
+                if save_checkpoints:
+                    self.save_best_model()
+
             # Save to history
             self.history.append({
                 'generation': gen + 1,
@@ -433,6 +437,21 @@ class GeneticAlgorithm:
                 print("\n💡 Tip: Check ga_evolution.png to see the evolution graph!")
 
         return self.best_ever_weights
+
+    def save_best_model(self):
+        """Save the best model found so far."""
+        data = {
+            'fitness': self.best_ever_fitness,
+            'weights': self.best_ever_weights,
+            'generation': self.generation,
+            'trained_with_lookahead': self.use_lookahead,
+            'info': f'Best model from generation {self.generation} with {self.best_ever_fitness:.1f} lines'
+        }
+
+        with open('best_model.json', 'w') as f:
+            json.dump(data, f, indent=2)
+
+        print(f"  🏆 New best! Saved to best_model.json ({self.best_ever_fitness:.1f} lines)")
 
     def save_checkpoint(self, filename):
         """Save current state to JSON file."""
