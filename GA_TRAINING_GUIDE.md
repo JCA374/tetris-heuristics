@@ -19,24 +19,33 @@ This is **actual machine learning** - the weights improve over time through evol
 ```bash
 # Quick test: 10 generations, small population
 python train_ga.py --quick
+
+# WITH VISUALIZATION - Watch evolution in real-time! 📊
+python train_ga.py --quick --visualize
 ```
 
 ### Real Training (1-2 hours)
 ```bash
 # 50 generations, 50 individuals, 5 games each
 python train_ga.py --generations 50
+
+# WITH VISUALIZATION - See the magic happen! ✨
+python train_ga.py --generations 50 --visualize
 ```
 
 ### High-Quality Training (overnight)
 ```bash
 # 200 generations for best results
 python train_ga.py --generations 200 --population 80 --games 10
+
+# WITH VISUALIZATION - Track long-term evolution! 📈
+python train_ga.py --generations 200 --visualize
 ```
 
 ### With Lookahead (slower but better)
 ```bash
 # Use lookahead during evaluation (10× slower)
-python train_ga.py --generations 50 --lookahead
+python train_ga.py --generations 50 --lookahead --visualize
 ```
 
 ## Command-Line Options
@@ -47,7 +56,61 @@ python train_ga.py --generations 50 --lookahead
 | `--population` `-p` | Population size | 50 |
 | `--games` | Games per fitness evaluation | 5 |
 | `--lookahead` | Enable one-piece lookahead | OFF |
+| `--visualize` `-v` | **Show real-time graph!** 📊 | OFF |
 | `--quick` | Quick test mode | OFF |
+
+## 📊 Visualization (NEW!)
+
+Watch evolution happen in real-time with matplotlib graphs!
+
+### Setup
+```bash
+pip install matplotlib
+```
+
+### What You'll See
+
+Two live-updating plots in a window:
+
+**Top Plot - Fitness Evolution:**
+- 🟢 **Green line**: Best individual each generation (going up!)
+- 🔵 **Blue line**: Population average
+- **Shaded area**: Range from worst to best
+- **Title**: Shows current best fitness
+
+**Bottom Plot - Weight Evolution:**
+- 🔴 **Red**: height weight
+- 🟢 **Green**: lines weight
+- 🟠 **Orange**: holes weight
+- 🟣 **Purple**: bumpiness weight
+- Watch weights converge as GA finds optimal values!
+
+### Example Output
+```
+🧬  GENETIC ALGORITHM - TETRIS WEIGHT OPTIMIZATION
+══════════════════════════════════════════════════════════════════════
+
+Population size: 50
+Games per individual: 5
+Lookahead: OFF
+Generations: 50
+Visualization: ON 📊
+
+📊 Real-time visualization enabled!
+```
+
+A matplotlib window opens showing two graphs that update after each generation!
+
+### Saved Graph
+
+After training completes, the final graph is automatically saved as:
+- **`ga_evolution.png`** - Publication-quality image of evolution
+
+Perfect for:
+- Understanding GA behavior
+- Verifying convergence
+- Presentations and reports
+- Comparing different runs
 
 ## How It Works
 
