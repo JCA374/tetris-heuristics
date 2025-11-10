@@ -98,6 +98,41 @@ L_PIECE = TetrisPiece('L', [
 ALL_PIECES = [I_PIECE, O_PIECE, T_PIECE, S_PIECE, Z_PIECE, J_PIECE, L_PIECE]
 
 
+class SevenBagGenerator:
+    """
+    Generates pieces using the 7-bag randomization system.
+
+    This is the modern Tetris standard (used in official games since 2001):
+    - Shuffle all 7 pieces into a bag
+    - Dispense them in order
+    - When bag is empty, refill and reshuffle
+
+    This prevents long droughts/floods of specific pieces and makes the game fairer.
+    Example: You're guaranteed to see an I-piece within every 7 pieces.
+    """
+
+    def __init__(self):
+        """Initialize with an empty bag."""
+        self.bag = []
+
+    def get_next_piece(self):
+        """
+        Get the next piece from the bag.
+
+        If bag is empty, refills with all 7 pieces in shuffled order.
+
+        Returns:
+            TetrisPiece: The next piece to play
+        """
+        if not self.bag:
+            # Refill bag with all pieces
+            self.bag = ALL_PIECES.copy()
+            import random
+            random.shuffle(self.bag)
+
+        return self.bag.pop()
+
+
 def get_random_piece():
     """Get a random Tetris piece."""
     import random

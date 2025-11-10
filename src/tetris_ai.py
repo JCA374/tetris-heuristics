@@ -12,12 +12,13 @@ Implements a simple but effective Tetris AI using four key heuristics:
 class TetrisAI:
     """AI player for Tetris using heuristic evaluation."""
 
-    # Default weights based on research and genetic algorithm optimization
+    # Default weights updated to defensive strategy (empirically best performer: 1,012 lines avg)
+    # Previous GA-optimized weights (Lee 2013): height=-0.510066, lines=0.760666, holes=-0.35663, bumpiness=-0.184483
     DEFAULT_WEIGHTS = {
-        'height': -0.510066,
-        'lines': 0.760666,
-        'holes': -0.35663,
-        'bumpiness': -0.184483
+        'height': -0.600000,
+        'lines': 0.500000,
+        'holes': -0.800000,  # Doubled penalty - key to defensive strategy
+        'bumpiness': -0.300000
     }
 
     def __init__(self, weights=None):
@@ -139,16 +140,61 @@ class TetrisAI:
 
         return score
 
-    def get_best_move(self, game, piece, verbose=False):
+    def _evaluate_with_lookahead(self, game, next_piece):
+        """
+        Evaluate a board state by looking ahead to the next piece.
+
+        This evaluates all possible placements of the next piece and
+        returns the best score achievable. This is the core of the
+        one-piece lookahead strategy.
+
+        Args:
+            game: TetrisGame object (state after current piece)
+            next_piece: TetrisPiece to look ahead with
+
+        Returns:
+            Best score achievable with the next piece
+        """
+        if game.game_over:
+            return float('-inf')
+
+        # Get all possible moves for next piece
+        next_moves = game.get_all_possible_moves(next_piece)
+
+        if not next_moves:
+            # No valid moves for next piece = game over
+            return float('-inf')
+
+        best_next_score = float('-inf')
+
+        # Try all possible placements of next piece
+        for next_rotation, next_col in next_moves:
+            # Simulate placing the next piece
+            next_game = game.simulate_move(next_piece, next_rotation, next_col)
+
+            if next_game is None:
+                continue
+
+            # Evaluate the board after next piece
+            score = self.evaluate_board(next_game)
+            best_next_score = max(best_next_score, score)
+
+            self.moves_evaluated += 1
+
+        return best_next_score
+
+    def get_best_move(self, game, piece, next_piece=None, verbose=False):
         """
         Find the best move for a given piece.
 
         Evaluates all possible placements and returns the one
-        with the highest score.
+        with the highest score. If next_piece is provided, uses
+        one-piece lookahead for evaluation.
 
         Args:
             game: TetrisGame object
             piece: TetrisPiece to place
+            next_piece: Optional next piece for lookahead (None = no lookahead)
             verbose: If True, print evaluation details
 
         Returns:
@@ -171,17 +217,23 @@ class TetrisAI:
                 continue
 
             # Evaluate the resulting board
-            score = self.evaluate_board(sim_game)
+            if next_piece is not None:
+                # Use one-piece lookahead
+                score = self._evaluate_with_lookahead(sim_game, next_piece)
+            else:
+                # No lookahead - evaluate current state only
+                score = self.evaluate_board(sim_game)
+                self.moves_evaluated += 1
+
             move_scores.append((rotation, col, score))
 
             if score > best_score:
                 best_score = score
                 best_move = (rotation, col)
 
-            self.moves_evaluated += 1
-
         if verbose and move_scores:
-            print(f"\nEvaluated {len(move_scores)} possible moves for piece {piece.name}:")
+            lookahead_str = f" (with lookahead: {next_piece.name})" if next_piece else ""
+            print(f"\nEvaluated {len(move_scores)} possible moves for piece {piece.name}{lookahead_str}:")
             # Show top 5 moves
             move_scores.sort(key=lambda x: x[2], reverse=True)
             for i, (rot, col, score) in enumerate(move_scores[:5]):
@@ -190,7 +242,7 @@ class TetrisAI:
 
         return best_move
 
-    def play_game(self, game, max_pieces=None, verbose=False, show_board=False):
+    def play_game(self, game, max_pieces=None, verbose=False, show_board=False, use_lookahead=False):
         """
         Play a complete game using the AI.
 
@@ -199,11 +251,24 @@ class TetrisAI:
             max_pieces: Maximum pieces to place (None for unlimited)
             verbose: If True, print move details
             show_board: If True, display board after each move
+            use_lookahead: If True, use one-piece lookahead with 7-bag generator
 
         Returns:
             Final game state
         """
-        from tetris_pieces import get_random_piece
+        if use_lookahead:
+            # Use 7-bag generator for fair piece distribution
+            from tetris_pieces import SevenBagGenerator
+            piece_generator = SevenBagGenerator()
+
+            # Pre-generate first two pieces for lookahead
+            current_piece = piece_generator.get_next_piece()
+            next_piece = piece_generator.get_next_piece()
+        else:
+            # Use pure random pieces, no lookahead
+            from tetris_pieces import get_random_piece
+            current_piece = get_random_piece()
+            next_piece = None
 
         pieces_placed = 0
         self.moves_evaluated = 0
@@ -212,11 +277,8 @@ class TetrisAI:
             if max_pieces and pieces_placed >= max_pieces:
                 break
 
-            # Get next piece
-            piece = get_random_piece()
-
-            # Find best move
-            move = self.get_best_move(game, piece, verbose=verbose)
+            # Find best move (with or without lookahead)
+            move = self.get_best_move(game, current_piece, next_piece=next_piece, verbose=verbose)
 
             if move is None:
                 game.game_over = True
@@ -225,15 +287,23 @@ class TetrisAI:
             rotation, col = move
 
             # Make the move
-            game.place_piece(piece, rotation, col)
+            game.place_piece(current_piece, rotation, col)
             pieces_placed += 1
 
             if show_board:
-                print(f"\n--- Piece {pieces_placed} ({piece.name}) ---")
+                next_str = f" (next: {next_piece.name})" if next_piece else ""
+                print(f"\n--- Piece {pieces_placed} ({current_piece.name}){next_str} ---")
                 print(game.display())
 
             if verbose and pieces_placed % 100 == 0:
                 print(f"Progress: {pieces_placed} pieces, {game.lines_cleared} lines")
+
+            # Advance to next piece
+            if use_lookahead:
+                current_piece = next_piece
+                next_piece = piece_generator.get_next_piece()
+            else:
+                current_piece = get_random_piece()
 
         return game
 

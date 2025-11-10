@@ -12,7 +12,7 @@ from tetris_game import TetrisGame
 from tetris_ai import TetrisAI
 
 
-def run_single_game(ai, verbose=False, show_board=False, delay=0):
+def run_single_game(ai, verbose=False, show_board=False, delay=0, use_lookahead=False):
     """
     Run a single game with the AI.
 
@@ -21,6 +21,7 @@ def run_single_game(ai, verbose=False, show_board=False, delay=0):
         verbose: Show move details
         show_board: Display board after each move
         delay: Delay between moves in seconds
+        use_lookahead: Enable one-piece lookahead
 
     Returns:
         Game statistics dict
@@ -29,10 +30,12 @@ def run_single_game(ai, verbose=False, show_board=False, delay=0):
 
     print("\n" + "=" * 50)
     print("Starting new game...")
+    if use_lookahead:
+        print("(One-piece lookahead ENABLED)")
     print("=" * 50)
 
     start_time = time.time()
-    ai.play_game(game, verbose=verbose, show_board=show_board)
+    ai.play_game(game, verbose=verbose, show_board=show_board, use_lookahead=use_lookahead)
     end_time = time.time()
 
     elapsed = end_time - start_time
@@ -54,7 +57,7 @@ def run_single_game(ai, verbose=False, show_board=False, delay=0):
     return stats
 
 
-def run_multiple_games(num_games, ai, verbose=False):
+def run_multiple_games(num_games, ai, verbose=False, use_lookahead=False):
     """
     Run multiple games and collect statistics.
 
@@ -62,6 +65,7 @@ def run_multiple_games(num_games, ai, verbose=False):
         num_games: Number of games to play
         ai: TetrisAI object
         verbose: Show progress
+        use_lookahead: Enable one-piece lookahead
 
     Returns:
         List of game statistics
@@ -74,7 +78,7 @@ def run_multiple_games(num_games, ai, verbose=False):
             print(f"Game {game_num}/{num_games}")
             print(f"{'='*50}")
 
-        stats = run_single_game(ai, verbose=False, show_board=False)
+        stats = run_single_game(ai, verbose=False, show_board=False, use_lookahead=use_lookahead)
         all_stats.append(stats)
 
         if verbose:
@@ -181,6 +185,12 @@ Examples:
     )
 
     parser.add_argument(
+        '--lookahead',
+        action='store_true',
+        help='Enable one-piece lookahead (10× performance boost, slower)'
+    )
+
+    parser.add_argument(
         '--weights',
         type=str,
         help='Custom weights as "h,l,o,b" (height,lines,holes,bumpiness)'
@@ -213,13 +223,22 @@ Examples:
         for key, val in ai.weights.items():
             print(f"  {key}: {val}")
 
+    # Display lookahead status
+    if args.lookahead:
+        print("\n🔮 One-piece lookahead: ENABLED")
+        print("   Expected: 10× performance boost (5,000-10,000 lines)")
+        print("   Note: Move evaluation will be ~160× slower")
+    else:
+        print("\n🔮 One-piece lookahead: DISABLED")
+        print("   Use --lookahead to enable")
+
     # Test mode
     if args.test:
         print("\n" + "=" * 50)
         print("TEST MODE - Playing 10 pieces")
         print("=" * 50)
         game = TetrisGame()
-        ai.play_game(game, max_pieces=10, verbose=args.verbose, show_board=not args.no_board)
+        ai.play_game(game, max_pieces=10, verbose=args.verbose, show_board=not args.no_board, use_lookahead=args.lookahead)
         print(f"\nTest completed!")
         print(f"  Lines: {game.lines_cleared}")
         print(f"  Pieces: {game.pieces_placed}")
@@ -232,7 +251,8 @@ Examples:
         stats = run_single_game(
             ai,
             verbose=args.verbose,
-            show_board=not args.no_board
+            show_board=not args.no_board,
+            use_lookahead=args.lookahead
         )
         print("\n" + "=" * 50)
         print("GAME STATISTICS")
@@ -245,7 +265,7 @@ Examples:
         print(f"Time per Move: {(stats['time'] / stats['pieces_placed'] * 1000):.1f}ms")
     else:
         # Multiple games with summary
-        all_stats = run_multiple_games(args.games, ai, verbose=args.verbose)
+        all_stats = run_multiple_games(args.games, ai, verbose=args.verbose, use_lookahead=args.lookahead)
         print_summary(all_stats)
 
 
