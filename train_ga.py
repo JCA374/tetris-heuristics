@@ -22,6 +22,7 @@ import sys
 import os
 import time
 import json
+from datetime import datetime
 from collections import defaultdict
 
 # Add src directory to path
@@ -76,6 +77,9 @@ class GeneticAlgorithm:
         self.best_ever_fitness = 0
         self.best_ever_weights = None
         self.history = []
+
+        # Logging directory (will be set when run() is called)
+        self.log_dir = None
 
     def create_random_individual(self):
         """Create a random set of weights within bounds."""
@@ -417,7 +421,82 @@ class GeneticAlgorithm:
         plt.savefig(filename, dpi=150, bbox_inches='tight')
         print(f"\n📊 Evolution graph saved: {filename}")
 
-    def run(self, generations=100, verbose=True, save_checkpoints=True, save_every_gen=False, visualize=False):
+    def save_generation_fitness_graph(self, generation):
+        """Save fitness progress graph (Best/Average/Worst) for current generation."""
+        if not MATPLOTLIB_AVAILABLE or not self.history:
+            return
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        generations = [h['generation'] for h in self.history]
+        max_fitness = [h['max_fitness'] for h in self.history]
+        avg_fitness = [h['avg_fitness'] for h in self.history]
+        min_fitness = [h['min_fitness'] for h in self.history]
+
+        # Plot lines
+        ax.plot(generations, max_fitness, 'g-', linewidth=2.5, label='Best', marker='o', markersize=6)
+        ax.plot(generations, avg_fitness, 'b-', linewidth=2, label='Average', marker='s', markersize=5)
+        ax.plot(generations, min_fitness, 'r-', linewidth=2, label='Worst', marker='x', markersize=5)
+
+        # Fill between for visual range
+        ax.fill_between(generations, min_fitness, max_fitness, alpha=0.15, color='blue')
+
+        ax.set_xlabel('Generation', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Lines Cleared', fontsize=12, fontweight='bold')
+        ax.set_title(f'Fitness Progress - Generation {generation}\nBest Ever: {max(max_fitness):.0f} lines',
+                     fontsize=14, fontweight='bold')
+        ax.legend(fontsize=11, loc='upper left')
+        ax.grid(True, alpha=0.3, linestyle='--')
+
+        # Save to log directory
+        if self.log_dir:
+            filename = os.path.join(self.log_dir, f'gen_{generation:04d}_fitness.png')
+            plt.savefig(filename, dpi=150, bbox_inches='tight')
+
+        plt.close(fig)
+
+    def save_generation_weights_graph(self, generation):
+        """Save weight evolution graph (height/lines/holes/bumpiness) for current generation."""
+        if not MATPLOTLIB_AVAILABLE or not self.history:
+            return
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        generations = [h['generation'] for h in self.history]
+        weight_names = ['height', 'lines', 'holes', 'bumpiness']
+        colors = ['#e74c3c', '#2ecc71', '#f39c12', '#9b59b6']  # Red, Green, Orange, Purple
+        markers = ['o', 's', '^', 'd']
+
+        # Plot each weight
+        for weight_name, color, marker in zip(weight_names, colors, markers):
+            values = [h['best_weights'][weight_name] for h in self.history]
+            ax.plot(generations, values, color=color, linewidth=2.5,
+                   label=weight_name, marker=marker, markersize=6)
+
+        ax.set_xlabel('Generation', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Weight Value', fontsize=12, fontweight='bold')
+        ax.set_title(f'Weight Evolution - Generation {generation}', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=11, loc='best')
+        ax.grid(True, alpha=0.3, linestyle='--')
+        ax.axhline(y=0, color='black', linestyle='-', alpha=0.4, linewidth=1.5)
+
+        # Annotate current values
+        current = self.history[-1]
+        text_lines = [f"Current Best Weights:"]
+        for name in weight_names:
+            text_lines.append(f"  {name}: {current['best_weights'][name]:+.4f}")
+        ax.text(0.02, 0.98, '\n'.join(text_lines), transform=ax.transAxes,
+               fontsize=9, verticalalignment='top', family='monospace',
+               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+
+        # Save to log directory
+        if self.log_dir:
+            filename = os.path.join(self.log_dir, f'gen_{generation:04d}_weights.png')
+            plt.savefig(filename, dpi=150, bbox_inches='tight')
+
+        plt.close(fig)
+
+    def run(self, generations=100, verbose=True, save_checkpoints=True, save_every_gen=True, visualize=False):
         """
         Run the genetic algorithm.
 
@@ -425,18 +504,25 @@ class GeneticAlgorithm:
             generations: Number of generations to evolve
             verbose: Print progress
             save_checkpoints: Save best weights periodically
-            save_every_gen: Save checkpoint after every generation (default: every 10)
+            save_every_gen: Save checkpoint and graphs after every generation (default: True)
             visualize: Show real-time visualization
         """
+        # Create log directory with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.log_dir = os.path.join("logs", f"ga_training_{timestamp}")
+        os.makedirs(self.log_dir, exist_ok=True)
+
         if verbose:
             print("=" * 70)
             print("🧬  GENETIC ALGORITHM - TETRIS WEIGHT OPTIMIZATION")
             print("=" * 70)
+            print(f"\n📁 Log directory: {self.log_dir}")
             print(f"\nPopulation size: {self.population_size}")
             print(f"Games per individual: {self.games_per_individual}")
             print(f"Lookahead: {'ON' if self.use_lookahead else 'OFF'}")
             print(f"Generations: {generations}")
             print(f"Visualization: {'ON 📊' if visualize else 'OFF'}")
+            print(f"Save every generation: {'YES' if save_every_gen else 'NO'}")
             print(f"\nMutation rate: {self.mutation_rate}")
             print(f"Mutation strength: {self.mutation_strength}")
             print(f"Crossover rate: {self.crossover_rate}")
@@ -533,6 +619,13 @@ class GeneticAlgorithm:
                     # Save every 10 generations (default)
                     self.save_checkpoint(f"ga_checkpoint_gen{gen + 1}.json")
 
+            # Save generation graphs
+            if save_every_gen and MATPLOTLIB_AVAILABLE:
+                self.save_generation_fitness_graph(gen + 1)
+                self.save_generation_weights_graph(gen + 1)
+                if verbose:
+                    print(f"\n  💾 Saved graphs: gen_{gen + 1:04d}_fitness.png & gen_{gen + 1:04d}_weights.png")
+
             # Evolve to next generation
             if gen < generations - 1:  # Don't evolve after last generation
                 population = self.evolve_generation(population, fitnesses)
@@ -551,9 +644,10 @@ class GeneticAlgorithm:
 
         # Save final visualization
         if viz_data:
-            self.save_visualization('ga_evolution.png')
+            final_viz_path = os.path.join(self.log_dir, 'ga_evolution_final.png') if self.log_dir else 'ga_evolution.png'
+            self.save_visualization(final_viz_path)
             if verbose:
-                print("\n💡 Tip: Check ga_evolution.png to see the evolution graph!")
+                print(f"\n💡 Tip: Check {final_viz_path} to see the evolution graph!")
 
         return self.best_ever_weights
 
@@ -562,20 +656,27 @@ class GeneticAlgorithm:
         data = {
             'fitness': self.best_ever_fitness,
             'weights': self.best_ever_weights,
-            'generation': self.generation,
+            'generation': self.generation + 1,
             'trained_with_lookahead': self.use_lookahead,
-            'info': f'Best model from generation {self.generation} with {self.best_ever_fitness:.1f} lines'
+            'info': f'Best model from generation {self.generation + 1} with {self.best_ever_fitness:.1f} lines'
         }
 
+        # Save to log directory
+        if self.log_dir:
+            log_path = os.path.join(self.log_dir, f'best_model_gen{self.generation + 1:04d}.json')
+            with open(log_path, 'w') as f:
+                json.dump(data, f, indent=2)
+
+        # Also save to root directory for easy access (backward compatibility)
         with open('best_model.json', 'w') as f:
             json.dump(data, f, indent=2)
 
-        print(f"  🏆 New best! Saved to best_model.json ({self.best_ever_fitness:.1f} lines)")
+        print(f"  🏆 New best! Saved to best_model.json & {self.log_dir}/best_model_gen{self.generation + 1:04d}.json ({self.best_ever_fitness:.1f} lines)")
 
     def save_checkpoint(self, filename):
         """Save current state to JSON file."""
         data = {
-            'generation': self.generation,
+            'generation': self.generation + 1,
             'best_ever_fitness': self.best_ever_fitness,
             'best_ever_weights': self.best_ever_weights,
             'history': self.history,
@@ -589,10 +690,15 @@ class GeneticAlgorithm:
             }
         }
 
-        with open(filename, 'w') as f:
-            json.dump(data, f, indent=2)
-
-        print(f"\n  💾 Checkpoint saved: {filename}")
+        # Save to log directory
+        if self.log_dir:
+            filepath = os.path.join(self.log_dir, filename)
+            with open(filepath, 'w') as f:
+                json.dump(data, f, indent=2)
+        else:
+            # Fallback to current directory if no log_dir
+            with open(filename, 'w') as f:
+                json.dump(data, f, indent=2)
 
 
 def main():
@@ -610,8 +716,8 @@ def main():
                         help='Enable one-piece lookahead (much slower but better results)')
     parser.add_argument('--visualize', '-v', action='store_true',
                         help='Show real-time evolution graph (requires matplotlib)')
-    parser.add_argument('--save-every', action='store_true',
-                        help='Save checkpoint after EVERY generation (default: every 10)')
+    parser.add_argument('--no-save-every', action='store_true',
+                        help='Do NOT save after every generation (saves only every 10)')
     parser.add_argument('--quick', action='store_true',
                         help='Quick test: 10 gens, 20 pop, 3 games')
 
@@ -634,7 +740,7 @@ def main():
     best_weights = ga.run(
         generations=args.generations,
         visualize=args.visualize,
-        save_every_gen=args.save_every
+        save_every_gen=not args.no_save_every  # Default to True unless --no-save-every is specified
     )
 
     # Save final results
