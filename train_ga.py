@@ -30,6 +30,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 from tetris_game import TetrisGame
 from tetris_ai import TetrisAI
 
+# Try to import matplotlib for visualization
+try:
+    import matplotlib.pyplot as plt
+    import matplotlib.animation as animation
+    from matplotlib.patches import Rectangle
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+
 
 class GeneticAlgorithm:
     """Genetic Algorithm for evolving Tetris AI weights."""
@@ -223,7 +232,80 @@ class GeneticAlgorithm:
 
         return new_population
 
-    def run(self, generations=100, verbose=True, save_checkpoints=True):
+    def init_visualization(self):
+        """Initialize matplotlib figure for real-time visualization."""
+        if not MATPLOTLIB_AVAILABLE:
+            return None
+
+        plt.ion()  # Turn on interactive mode
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+
+        # Top plot: Fitness over generations
+        ax1.set_xlabel('Generation')
+        ax1.set_ylabel('Lines Cleared')
+        ax1.set_title('🧬 Genetic Algorithm Evolution')
+        ax1.grid(True, alpha=0.3)
+
+        # Bottom plot: Weight evolution
+        ax2.set_xlabel('Generation')
+        ax2.set_ylabel('Weight Value')
+        ax2.set_title('Weight Evolution Over Time')
+        ax2.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+
+        return fig, ax1, ax2
+
+    def update_visualization(self, fig, ax1, ax2):
+        """Update the visualization with current generation data."""
+        if not MATPLOTLIB_AVAILABLE or not self.history:
+            return
+
+        generations = [h['generation'] for h in self.history]
+        max_fitness = [h['max_fitness'] for h in self.history]
+        avg_fitness = [h['avg_fitness'] for h in self.history]
+        min_fitness = [h['min_fitness'] for h in self.history]
+
+        # Clear and redraw fitness plot
+        ax1.clear()
+        ax1.plot(generations, max_fitness, 'g-', linewidth=2, label='Best', marker='o')
+        ax1.plot(generations, avg_fitness, 'b-', linewidth=2, label='Average')
+        ax1.fill_between(generations, min_fitness, max_fitness, alpha=0.2, color='blue')
+        ax1.set_xlabel('Generation')
+        ax1.set_ylabel('Lines Cleared')
+        ax1.set_title(f'🧬 Evolution Progress (Best: {max(max_fitness):.0f} lines)')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+
+        # Weight evolution plot
+        ax2.clear()
+        weight_names = ['height', 'lines', 'holes', 'bumpiness']
+        colors = ['red', 'green', 'orange', 'purple']
+
+        for weight_name, color in zip(weight_names, colors):
+            values = [h['best_weights'][weight_name] for h in self.history]
+            ax2.plot(generations, values, color=color, linewidth=2, label=weight_name, marker='.')
+
+        ax2.set_xlabel('Generation')
+        ax2.set_ylabel('Weight Value')
+        ax2.set_title('Weight Evolution')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        ax2.axhline(y=0, color='black', linestyle='--', alpha=0.3)
+
+        plt.tight_layout()
+        plt.pause(0.01)  # Small pause to update display
+
+    def save_visualization(self, filename='ga_evolution.png'):
+        """Save the final visualization to a file."""
+        if not MATPLOTLIB_AVAILABLE:
+            return
+
+        plt.ioff()  # Turn off interactive mode
+        plt.savefig(filename, dpi=150, bbox_inches='tight')
+        print(f"\n📊 Evolution graph saved: {filename}")
+
+    def run(self, generations=100, verbose=True, save_checkpoints=True, visualize=False):
         """
         Run the genetic algorithm.
 
@@ -240,6 +322,7 @@ class GeneticAlgorithm:
             print(f"Games per individual: {self.games_per_individual}")
             print(f"Lookahead: {'ON' if self.use_lookahead else 'OFF'}")
             print(f"Generations: {generations}")
+            print(f"Visualization: {'ON 📊' if visualize else 'OFF'}")
             print(f"\nMutation rate: {self.mutation_rate}")
             print(f"Mutation strength: {self.mutation_strength}")
             print(f"Crossover rate: {self.crossover_rate}")
@@ -247,6 +330,17 @@ class GeneticAlgorithm:
             print(f"Tournament size: {self.tournament_size}")
             print("\n" + "=" * 70)
             print("\nInitializing population...")
+
+        # Initialize visualization if requested
+        viz_data = None
+        if visualize:
+            if not MATPLOTLIB_AVAILABLE:
+                print("\n⚠️  Warning: matplotlib not installed. Install with: pip install matplotlib")
+                print("    Continuing without visualization...")
+            else:
+                viz_data = self.init_visualization()
+                if verbose:
+                    print("📊 Real-time visualization enabled!")
 
         # Create initial population
         population = self.create_initial_population()
@@ -307,6 +401,11 @@ class GeneticAlgorithm:
                 for feature, value in best_weights.items():
                     print(f"     {feature:12s}: {value:+.6f}")
 
+            # Update visualization
+            if viz_data:
+                fig, ax1, ax2 = viz_data
+                self.update_visualization(fig, ax1, ax2)
+
             # Save checkpoint every 10 generations
             if save_checkpoints and (gen + 1) % 10 == 0:
                 self.save_checkpoint(f"ga_checkpoint_gen{gen + 1}.json")
@@ -326,6 +425,12 @@ class GeneticAlgorithm:
             print(f"\n   Weights:")
             for feature, value in self.best_ever_weights.items():
                 print(f"     {feature:12s}: {value:+.6f}")
+
+        # Save final visualization
+        if viz_data:
+            self.save_visualization('ga_evolution.png')
+            if verbose:
+                print("\n💡 Tip: Check ga_evolution.png to see the evolution graph!")
 
         return self.best_ever_weights
 
@@ -365,6 +470,8 @@ def main():
                         help='Games per individual for fitness evaluation (default: 5)')
     parser.add_argument('--lookahead', action='store_true',
                         help='Enable one-piece lookahead (much slower but better results)')
+    parser.add_argument('--visualize', '-v', action='store_true',
+                        help='Show real-time evolution graph (requires matplotlib)')
     parser.add_argument('--quick', action='store_true',
                         help='Quick test: 10 gens, 20 pop, 3 games')
 
@@ -384,7 +491,7 @@ def main():
         use_lookahead=args.lookahead
     )
 
-    best_weights = ga.run(generations=args.generations)
+    best_weights = ga.run(generations=args.generations, visualize=args.visualize)
 
     # Save final results
     ga.save_checkpoint('ga_final_results.json')

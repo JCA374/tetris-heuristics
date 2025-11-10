@@ -7,5 +7,8 @@
 # Optional: For graphical Pygame demo (demo_pygame.py)
 pygame>=2.0.0
 
+# Optional: For GA training with visualization (train_ga.py --visualize)
+matplotlib>=3.0.0
+
 # Future enhancements:
 # numpy>=1.20.0
