@@ -238,25 +238,34 @@ class GeneticAlgorithm:
             return None
 
         plt.ion()  # Turn on interactive mode
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+        fig = plt.figure(figsize=(14, 8))
 
-        # Top plot: Fitness over generations
+        # Create grid layout: 2 rows, 2 columns
+        gs = fig.add_gridspec(2, 2, hspace=0.3, wspace=0.3)
+
+        # Top left: Fitness over generations
+        ax1 = fig.add_subplot(gs[0, :])  # Spans both columns
         ax1.set_xlabel('Generation')
         ax1.set_ylabel('Lines Cleared')
         ax1.set_title('🧬 Genetic Algorithm Evolution')
         ax1.grid(True, alpha=0.3)
 
-        # Bottom plot: Weight evolution
+        # Bottom left: Weight evolution
+        ax2 = fig.add_subplot(gs[1, 0])
         ax2.set_xlabel('Generation')
         ax2.set_ylabel('Weight Value')
-        ax2.set_title('Weight Evolution Over Time')
+        ax2.set_title('Weight Evolution')
         ax2.grid(True, alpha=0.3)
 
-        plt.tight_layout()
+        # Bottom right: Current generation bar chart
+        ax3 = fig.add_subplot(gs[1, 1])
+        ax3.set_ylabel('Lines Cleared')
+        ax3.set_title('Current Generation Stats')
+        ax3.grid(True, alpha=0.3, axis='y')
 
-        return fig, ax1, ax2
+        return fig, ax1, ax2, ax3
 
-    def update_visualization(self, fig, ax1, ax2):
+    def update_visualization(self, fig, ax1, ax2, ax3):
         """Update the visualization with current generation data."""
         if not MATPLOTLIB_AVAILABLE or not self.history:
             return
@@ -273,7 +282,7 @@ class GeneticAlgorithm:
         ax1.fill_between(generations, min_fitness, max_fitness, alpha=0.2, color='blue')
         ax1.set_xlabel('Generation')
         ax1.set_ylabel('Lines Cleared')
-        ax1.set_title(f'🧬 Evolution Progress (Best: {max(max_fitness):.0f} lines)')
+        ax1.set_title(f'🧬 Evolution Progress (Best Ever: {max(max_fitness):.0f} lines)')
         ax1.legend()
         ax1.grid(True, alpha=0.3)
 
@@ -289,9 +298,30 @@ class GeneticAlgorithm:
         ax2.set_xlabel('Generation')
         ax2.set_ylabel('Weight Value')
         ax2.set_title('Weight Evolution')
-        ax2.legend()
+        ax2.legend(fontsize=8)
         ax2.grid(True, alpha=0.3)
         ax2.axhline(y=0, color='black', linestyle='--', alpha=0.3)
+
+        # Current generation bar chart
+        ax3.clear()
+        current = self.history[-1]
+        stats = ['Best', 'Average', 'Worst']
+        values = [current['max_fitness'], current['avg_fitness'], current['min_fitness']]
+        colors_bar = ['#2ecc71', '#3498db', '#e74c3c']  # Green, Blue, Red
+
+        bars = ax3.bar(stats, values, color=colors_bar, alpha=0.7, edgecolor='black')
+
+        # Add value labels on bars
+        for bar, value in zip(bars, values):
+            height = bar.get_height()
+            ax3.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{value:.0f}',
+                    ha='center', va='bottom', fontsize=10, fontweight='bold')
+
+        ax3.set_ylabel('Lines Cleared')
+        ax3.set_title(f'Generation {current["generation"]} Stats')
+        ax3.grid(True, alpha=0.3, axis='y')
+        ax3.set_ylim(0, max(values) * 1.2)  # Add 20% padding
 
         plt.tight_layout()
         plt.pause(0.01)  # Small pause to update display
@@ -305,7 +335,7 @@ class GeneticAlgorithm:
         plt.savefig(filename, dpi=150, bbox_inches='tight')
         print(f"\n📊 Evolution graph saved: {filename}")
 
-    def run(self, generations=100, verbose=True, save_checkpoints=True, visualize=False):
+    def run(self, generations=100, verbose=True, save_checkpoints=True, save_every_gen=False, visualize=False):
         """
         Run the genetic algorithm.
 
@@ -313,6 +343,8 @@ class GeneticAlgorithm:
             generations: Number of generations to evolve
             verbose: Print progress
             save_checkpoints: Save best weights periodically
+            save_every_gen: Save checkpoint after every generation (default: every 10)
+            visualize: Show real-time visualization
         """
         if verbose:
             print("=" * 70)
@@ -407,12 +439,17 @@ class GeneticAlgorithm:
 
             # Update visualization
             if viz_data:
-                fig, ax1, ax2 = viz_data
-                self.update_visualization(fig, ax1, ax2)
+                fig, ax1, ax2, ax3 = viz_data
+                self.update_visualization(fig, ax1, ax2, ax3)
 
-            # Save checkpoint every 10 generations
-            if save_checkpoints and (gen + 1) % 10 == 0:
-                self.save_checkpoint(f"ga_checkpoint_gen{gen + 1}.json")
+            # Save checkpoint
+            if save_checkpoints:
+                if save_every_gen:
+                    # Save every generation
+                    self.save_checkpoint(f"ga_checkpoint_gen{gen + 1}.json")
+                elif (gen + 1) % 10 == 0:
+                    # Save every 10 generations (default)
+                    self.save_checkpoint(f"ga_checkpoint_gen{gen + 1}.json")
 
             # Evolve to next generation
             if gen < generations - 1:  # Don't evolve after last generation
@@ -491,6 +528,8 @@ def main():
                         help='Enable one-piece lookahead (much slower but better results)')
     parser.add_argument('--visualize', '-v', action='store_true',
                         help='Show real-time evolution graph (requires matplotlib)')
+    parser.add_argument('--save-every', action='store_true',
+                        help='Save checkpoint after EVERY generation (default: every 10)')
     parser.add_argument('--quick', action='store_true',
                         help='Quick test: 10 gens, 20 pop, 3 games')
 
@@ -510,7 +549,11 @@ def main():
         use_lookahead=args.lookahead
     )
 
-    best_weights = ga.run(generations=args.generations, visualize=args.visualize)
+    best_weights = ga.run(
+        generations=args.generations,
+        visualize=args.visualize,
+        save_every_gen=args.save_every
+    )
 
     # Save final results
     ga.save_checkpoint('ga_final_results.json')
