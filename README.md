@@ -135,17 +135,18 @@ score = (height × weight_h) + (lines × weight_l) +
 ## 📖 Documentation
 
 ### Main Docs
-- **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - Comprehensive overview
-- **[QUICK_START.md](QUICK_START.md)** - Command reference
+- **[README.md](README.md)** - This file (quick start & overview)
+- **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - Comprehensive project overview
+- **[HEURISTICS_EXPLAINED.md](HEURISTICS_EXPLAINED.md)** - Deep dive into heuristics & weights
 - **[GA_TRAINING_GUIDE.md](GA_TRAINING_GUIDE.md)** - GA training guide
-- **[DEMO_GUIDE.md](DEMO_GUIDE.md)** - Terminal demo guide
-- **[PYGAME_SETUP.md](PYGAME_SETUP.md)** - Pygame demo guide
+- **[DEMOS.md](DEMOS.md)** - All demo options (terminal, pygame, comparison)
 - **[CLAUDE.md](CLAUDE.md)** - Claude Code instructions
 
 ### Research (in docs/)
 - **RESEARCH.md** - Deep dive into Tetris AI approaches
 - **RESEARCH_ANALYSIS.md** - Feature analysis & roadmap
 - **IMPLEMENTATION_PLAN.md** - Original project plan
+- **DETAILED_IMPLEMENTATION_GUIDE.md** - Phase 1/2 implementation details
 
 ## 🧪 Testing
 
@@ -279,7 +280,7 @@ Built with Python 3.11 | Research-driven | Feature engineering wins
 ---
 
 **Quick Links:**
-- [Comprehensive Overview](PROJECT_SUMMARY.md)
-- [Quick Start Guide](QUICK_START.md)
-- [GA Training Guide](GA_TRAINING_GUIDE.md)
-- [Demo Guide](DEMO_GUIDE.md)
+- [📋 Comprehensive Overview](PROJECT_SUMMARY.md)
+- [🧠 Heuristics Explained](HEURISTICS_EXPLAINED.md)
+- [🧬 GA Training Guide](GA_TRAINING_GUIDE.md)
+- [🎮 Demo Guide](DEMOS.md)
