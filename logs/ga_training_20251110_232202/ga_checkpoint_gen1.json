@@ -1,0 +1,32 @@
+{
+  "generation": 1,
+  "best_ever_fitness": 595.8,
+  "best_ever_weights": {
+    "height": -1.9661227152591862,
+    "lines": 1.0874763737383808,
+    "holes": -1.5793456465460738,
+    "bumpiness": -0.7908870909749537
+  },
+  "history": [
+    {
+      "generation": 1,
+      "avg_fitness": 173.488,
+      "max_fitness": 595.8,
+      "min_fitness": 13.0,
+      "best_weights": {
+        "height": -1.9661227152591862,
+        "lines": 1.0874763737383808,
+        "holes": -1.5793456465460738,
+        "bumpiness": -0.7908870909749537
+      }
+    }
+  ],
+  "parameters": {
+    "population_size": 50,
+    "games_per_individual": 5,
+    "use_lookahead": false,
+    "mutation_rate": 0.2,
+    "mutation_strength": 0.3,
+    "crossover_rate": 0.7
+  }
+}

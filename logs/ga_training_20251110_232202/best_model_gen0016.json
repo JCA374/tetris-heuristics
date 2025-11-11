@@ -1,0 +1,12 @@
+{
+  "fitness": 3033.4,
+  "weights": {
+    "height": 0.0,
+    "lines": 1.4107104501141696,
+    "holes": -1.9872824623024445,
+    "bumpiness": -0.44588861958609644
+  },
+  "generation": 16,
+  "trained_with_lookahead": false,
+  "info": "Best model from generation 16 with 3033.4 lines"
+}
