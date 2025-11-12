@@ -69,7 +69,7 @@ class GeneticAlgorithm:
         self.bounds = {
             'height': (-2.0, 0.0),      # Always negative (minimize)
             'lines': (0.0, 2.0),        # Always positive (maximize)
-            'holes': (-2.0, 0.0),       # Always negative (minimize)
+            'holes': (-10.0, 0.0),      # Always negative (minimize) - increased range for better exploration
             'bumpiness': (-2.0, 0.0)    # Always negative (minimize)
         }
 

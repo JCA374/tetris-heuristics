@@ -280,30 +280,45 @@ With `--lookahead`, results can be 5-10× better but training is 10× slower.
 
 ## Using Your Trained Weights
 
-After training completes, you'll have `ga_final_results.json`:
+After training completes, the best model is automatically saved to `best_model.json` (plus a copy in the log directory).
 
-```json
-{
-  "best_ever_fitness": 1842.0,
-  "best_ever_weights": {
-    "height": -0.623451,
-    "lines": 0.812334,
-    "holes": -0.734521,
-    "bumpiness": -0.245612
-  }
-}
-```
+### ✨ Easy Way: Use `play_best_model.py`
 
-### Test your trained weights:
+**This is the easiest way to test your trained model!**
 
 ```bash
-# Use your trained weights
-python src/main.py --weights -0.623451,0.812334,-0.734521,-0.245612
+# Play 10 games with your trained weights
+python play_best_model.py --games 10
 
-# Watch it play
-python demo_pygame.py
-# Then manually update demo_pygame.py with your weights
+# Play 5 games and compare to default weights
+python play_best_model.py --compare
+
+# Watch one game in slow motion
+python play_best_model.py --watch
+
+# Use lookahead (if trained with lookahead)
+python play_best_model.py --games 10 --lookahead
 ```
+
+**What it does:**
+- ✅ Automatically loads `best_model.json`
+- ✅ Shows model info (fitness, generation, weights)
+- ✅ Runs benchmarks and statistics
+- ✅ Provides ready-to-use weight strings
+
+### Manual Method: Use weights directly
+
+If you want to use the weights manually:
+
+```bash
+# Format: --weights="height,lines,holes,bumpiness"
+python src/main.py --weights="-0.623,0.812,-0.734,-0.245" --games 10
+
+# With lookahead
+python src/main.py --weights="-0.623,0.812,-0.734,-0.245" --lookahead
+```
+
+**Tip**: The script `play_best_model.py` prints the exact command for you!
 
 ## Resuming Training
 
@@ -363,6 +378,45 @@ self.tournament_size = 5        # Tournament selection size
 
 **Higher mutation** = more exploration, less exploitation
 **Lower mutation** = refine existing solutions
+
+## Weight Bounds (Search Space)
+
+The GA explores weights within these bounds:
+
+```python
+self.bounds = {
+    'height': (-2.0, 0.0),      # Always negative (minimize)
+    'lines': (0.0, 2.0),        # Always positive (maximize)
+    'holes': (-10.0, 0.0),      # Always negative (minimize) - EXPANDED RANGE!
+    'bumpiness': (-2.0, 0.0)    # Always negative (minimize)
+}
+```
+
+### Why Holes Has Extended Range (-10.0)
+
+**Research Finding**: The holes weight is the **most impactful feature** in Tetris AI!
+
+- **Dellacherie's research**: Optimal holes weight around **-24.04** (achieves 660,000 lines!)
+- **GA observations**: After 66 generations, GA pushed holes to -2.0 boundary (5,678 lines)
+- **Conclusion**: GA was hitting the constraint - needed more room to explore
+
+**Extended range (-10.0) allows GA to:**
+- ✅ Discover more aggressive hole-avoidance strategies
+- ✅ Match research findings (holes should be heavily penalized)
+- ✅ Unlock 10-100× performance improvements
+- ✅ Explore strategies that prioritize survival over line clears
+
+**Typical evolved values**:
+- Early generations: holes ≈ -0.3 to -0.8 (~500-1,000 lines)
+- Mid generations: holes ≈ -1.5 to -3.0 (~2,000-4,000 lines)
+- Late generations: holes ≈ -3.0 to -8.0 (~5,000-10,000 lines)
+- Research optimum: holes ≈ -24.0 (~660,000 lines with advanced features)
+
+### Boundary Hitting
+
+**How to detect**: If a weight consistently stays at the boundary (e.g., holes = -10.0), it may need more range.
+
+**What to do**: Expand the bound and retrain to let GA explore further.
 
 ## Comparison to Current Weights
 
