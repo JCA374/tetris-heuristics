@@ -14,23 +14,23 @@ Comprehensive benchmark suite to find optimal GA configuration for your system.
    - Recommends optimal parallelization
 
 2. **Population Size**
-   - Tests populations: 10, 20, 30, 50, 80, 100
+   - Tests populations: 10, 20, 30, 50
    - Measures convergence rate and time efficiency
    - Finds best balance of speed vs quality
 
 ### Quick Start
 
 ```bash
-# Fast test (5 minutes) - Start here!
+# Fast test (~2 minutes) - Start here!
 python tests/test_ga_performance.py --quick
 
-# Test worker parallelization (10 minutes)
+# Test worker parallelization (~5 minutes)
 python tests/test_ga_performance.py --workers
 
-# Test population sizes (20 minutes)
+# Test population sizes (~10 minutes)
 python tests/test_ga_performance.py --population
 
-# Complete benchmark (30+ minutes)
+# Complete benchmark (~15 minutes)
 python tests/test_ga_performance.py --full
 ```
 
@@ -65,8 +65,6 @@ Pop Size   Time/Gen    Final Best  Convergence  Eval/sec
 20         10.8s       312.6       +12.1/gen    55.6
 30         16.4s       328.4       +15.3/gen    54.9
 50         28.1s       346.8       +18.7/gen    53.3
-80         45.7s       364.2       +21.4/gen    52.5
-100        57.3s       372.6       +23.1/gen    52.3
 ```
 
 **Metrics:**
@@ -95,14 +93,14 @@ The script automatically provides recommendations like:
 
 ---
 
-✅ Best Convergence: Population=80 (+21.4 lines/gen improvement)
-✅ Best Final Fitness: Population=100 (372.6 lines)
-✅ Best Time Efficiency: Population=50 (68.2 lines/min improvement)
+✅ Best Convergence: Population=50 (+18.7 lines/gen improvement)
+✅ Best Final Fitness: Population=50 (346.8 lines)
+✅ Best Time Efficiency: Population=30 (56.2 lines/min improvement)
 
 📝 General Guidance:
-   • Small population (10-30): Fast testing, less diversity
+   • Small population (10-20): Fast testing, less diversity
    • Medium population (30-50): Balanced, recommended for most cases
-   • Large population (80-100): Better exploration, slower per generation
+   • Large population (50+): Better exploration, slower per generation
 
 ═══════════════════════════════════════════════════
 🎯 FINAL RECOMMENDATIONS
@@ -110,24 +108,24 @@ The script automatically provides recommendations like:
 
 ✅ Recommended Configuration:
    python train_ga.py \
-       --population 50 \
+       --population 30 \
        --workers 4 \
        --generations 100
 
-   Expected: ~68 lines/min improvement
-   Time estimate: ~46.8 minutes for 100 generations
+   Expected: ~56 lines/min improvement
+   Time estimate: ~27.3 minutes for 100 generations
 ```
 
 ### Options
 
 | Option | Description | Time |
 |--------|-------------|------|
-| `--quick` | Fast test: 3 worker configs, 5 gens | ~5 min |
-| `--workers` | Test worker parallelization (1-8 workers) | ~10 min |
-| `--population` | Test population sizes (10-100) | ~20 min |
-| `--full` | Complete benchmark (workers + populations) | ~30+ min |
-| `--generations N` | Generations per test (default: 10) | Varies |
-| `--games N` | Games per evaluation (default: 3) | Varies |
+| `--quick` | Fast test: 3 worker configs, 3 gens, pop=15 | ~2 min |
+| `--workers` | Test worker parallelization (1-4/8 workers) | ~5 min |
+| `--population` | Test population sizes (10-50) | ~10 min |
+| `--full` | Complete benchmark (workers + populations) | ~15 min |
+| `--generations N` | Generations per test (default: 5) | Varies |
+| `--games N` | Games per evaluation (default: 2) | Varies |
 | `--save` | Save results to JSON file | - |
 
 ### Interpreting Results for Your System
@@ -146,7 +144,7 @@ Recommendation: Use --workers 1 (serial mode)
 
 #### Population Size Tradeoffs
 
-**Small population (10-30):**
+**Small population (10-20):**
 - ⚡ Fast generations
 - ⚠️ Less diversity → may miss good solutions
 - 👍 Good for: Quick testing, initial experiments
@@ -156,9 +154,9 @@ Recommendation: Use --workers 1 (serial mode)
 - ✅ Good diversity
 - 👍 Good for: Most training runs
 
-**Large population (80-100):**
-- 🐌 Slow generations
-- ✅ Best diversity → finds better solutions
+**Large population (50+):**
+- 🐌 Slower generations
+- ✅ Better diversity → finds better solutions
 - ✅ Better convergence rate
 - 👍 Good for: Final high-quality training
 

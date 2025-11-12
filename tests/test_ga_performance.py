@@ -213,7 +213,7 @@ def benchmark_population_size(pop_size, generations=10, games=3, workers=1):
     return results
 
 
-def benchmark_workers(pop_size=30, generations=5, games=3):
+def benchmark_workers(pop_size=20, generations=5, games=2):
     """
     Test different worker counts with fixed population.
 
@@ -226,7 +226,7 @@ def benchmark_workers(pop_size=30, generations=5, games=3):
         List of benchmark results
     """
     cpu_count = mp.cpu_count()
-    worker_counts = [1, 2, 4, min(8, cpu_count), cpu_count]
+    worker_counts = [1, 2, 4, min(8, cpu_count)]
     worker_counts = sorted(set(worker_counts))  # Remove duplicates
 
     print(f"\n{'='*70}")
@@ -244,7 +244,7 @@ def benchmark_workers(pop_size=30, generations=5, games=3):
     return results
 
 
-def benchmark_populations(worker_count=1, generations=10, games=3):
+def benchmark_populations(worker_count=1, generations=5, games=2):
     """
     Test different population sizes with fixed workers.
 
@@ -256,7 +256,7 @@ def benchmark_populations(worker_count=1, generations=10, games=3):
     Returns:
         List of benchmark results
     """
-    pop_sizes = [10, 20, 30, 50, 80, 100]
+    pop_sizes = [10, 20, 30, 50]
 
     print(f"\n{'='*70}")
     print(f"📊 POPULATION SIZE BENCHMARKS")
@@ -403,25 +403,25 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python tests/test_ga_performance.py --quick          # Fast test (5 min)
-  python tests/test_ga_performance.py --workers        # Test parallelization (10 min)
-  python tests/test_ga_performance.py --population     # Test population sizes (20 min)
-  python tests/test_ga_performance.py --full           # Complete benchmark (30+ min)
+  python tests/test_ga_performance.py --quick          # Fast test (~2 min)
+  python tests/test_ga_performance.py --workers        # Test parallelization (~5 min)
+  python tests/test_ga_performance.py --population     # Test population sizes (~10 min)
+  python tests/test_ga_performance.py --full           # Complete benchmark (~15 min)
         """
     )
 
     parser.add_argument('--quick', action='store_true',
-                       help='Quick test (5 gens, pop=20, workers=1,2,4)')
+                       help='Quick test (3 gens, pop=15, workers=1,2,4) - ~2 min')
     parser.add_argument('--workers', action='store_true',
-                       help='Benchmark different worker counts')
+                       help='Benchmark different worker counts (~5 min)')
     parser.add_argument('--population', action='store_true',
-                       help='Benchmark different population sizes')
+                       help='Benchmark different population sizes (~10 min)')
     parser.add_argument('--full', action='store_true',
-                       help='Full benchmark (workers + population)')
-    parser.add_argument('--generations', type=int, default=10,
-                       help='Generations per test (default: 10)')
-    parser.add_argument('--games', type=int, default=3,
-                       help='Games per individual (default: 3)')
+                       help='Full benchmark (workers + population) (~15 min)')
+    parser.add_argument('--generations', type=int, default=5,
+                       help='Generations per test (default: 5)')
+    parser.add_argument('--games', type=int, default=2,
+                       help='Games per individual (default: 2)')
     parser.add_argument('--save', action='store_true',
                        help='Save results to JSON file')
 
@@ -443,11 +443,11 @@ Examples:
 
     if args.quick:
         print("🚀 QUICK TEST MODE")
-        print("   Testing: Workers=1,2,4 with Population=20")
+        print("   Testing: Workers=1,2,4 with Population=15")
 
         results = []
         for workers in [1, 2, 4]:
-            result = benchmark_population_size(20, 5, 3, workers)
+            result = benchmark_population_size(15, 3, 2, workers)
             results.append(result)
 
         print_summary(results, "workers")
@@ -487,7 +487,7 @@ Examples:
 
     elif args.full:
         print("🎯 FULL BENCHMARK MODE")
-        print("   This will take 30+ minutes...\n")
+        print("   This will take ~15 minutes...\n")
 
         # Test workers first
         print("\n" + "="*70)
