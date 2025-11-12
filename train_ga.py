@@ -22,6 +22,7 @@ import sys
 import os
 import time
 import json
+import multiprocessing as mp
 from datetime import datetime
 from collections import defaultdict
 
@@ -41,10 +42,32 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
 
+def evaluate_fitness_worker(args):
+    """
+    Worker function for parallel fitness evaluation.
+
+    Args:
+        args: Tuple of (weights, games_per_individual, use_lookahead)
+
+    Returns:
+        Average lines cleared
+    """
+    weights, games_per_individual, use_lookahead = args
+    ai = TetrisAI(weights=weights)
+    total_lines = 0
+
+    for _ in range(games_per_individual):
+        game = TetrisGame()
+        ai.play_game(game, use_lookahead=use_lookahead)
+        total_lines += game.lines_cleared
+
+    return total_lines / games_per_individual
+
+
 class GeneticAlgorithm:
     """Genetic Algorithm for evolving Tetris AI weights."""
 
-    def __init__(self, population_size=50, games_per_individual=5, use_lookahead=False):
+    def __init__(self, population_size=50, games_per_individual=5, use_lookahead=False, workers=1):
         """
         Initialize GA.
 
@@ -52,10 +75,12 @@ class GeneticAlgorithm:
             population_size: Number of individuals in population
             games_per_individual: Games to play for fitness evaluation
             use_lookahead: Enable one-piece lookahead during evaluation
+            workers: Number of parallel workers (1 = no parallelization)
         """
         self.population_size = population_size
         self.games_per_individual = games_per_individual
         self.use_lookahead = use_lookahead
+        self.workers = workers
         self.generation = 0
 
         # GA parameters
@@ -80,6 +105,9 @@ class GeneticAlgorithm:
 
         # Logging directory (will be set when run() is called)
         self.log_dir = None
+
+        # Multiprocessing pool (will be created if workers > 1)
+        self.pool = None
 
     def create_random_individual(self):
         """Create a random set of weights within bounds."""
@@ -143,6 +171,33 @@ class GeneticAlgorithm:
 
         avg_lines = total_lines / self.games_per_individual
         return avg_lines
+
+    def evaluate_population(self, population):
+        """
+        Evaluate entire population (with optional parallelization).
+
+        Args:
+            population: List of weight dicts
+
+        Returns:
+            List of fitness scores
+        """
+        if self.workers <= 1:
+            # Serial evaluation (original method)
+            return [self.evaluate_fitness(ind) for ind in population]
+
+        # Parallel evaluation
+        if self.pool is None:
+            self.pool = mp.Pool(processes=self.workers)
+
+        # Prepare arguments for workers
+        args_list = [
+            (ind, self.games_per_individual, self.use_lookahead)
+            for ind in population
+        ]
+
+        fitnesses = self.pool.map(evaluate_fitness_worker, args_list)
+        return fitnesses
 
     def tournament_selection(self, population, fitnesses):
         """
@@ -530,6 +585,7 @@ class GeneticAlgorithm:
             print(f"\nPopulation size: {self.population_size}")
             print(f"Games per individual: {self.games_per_individual}")
             print(f"Lookahead: {'ON' if self.use_lookahead else 'OFF'}")
+            print(f"Workers: {self.workers} ({'parallel' if self.workers > 1 else 'serial'})")
             print(f"Generations: {generations}")
             print(f"Visualization: {'ON 📊' if visualize else 'OFF'}")
             print(f"Save every generation: {'YES' if save_every_gen else 'NO'}")
@@ -573,13 +629,20 @@ class GeneticAlgorithm:
                 print(f"{'='*70}")
 
             # Evaluate fitness for all individuals
-            fitnesses = []
-            for i, weights in enumerate(population):
+            if self.workers > 1:
                 if verbose:
-                    print(f"  Evaluating individual {i + 1}/{self.population_size}...", end='\r')
+                    print(f"  Evaluating population with {self.workers} workers...")
+                fitnesses = self.evaluate_population(population)
+                if verbose:
+                    print(f"  ✓ Evaluation complete ({len(fitnesses)} individuals)")
+            else:
+                fitnesses = []
+                for i, weights in enumerate(population):
+                    if verbose:
+                        print(f"  Evaluating individual {i + 1}/{self.population_size}...", end='\r')
 
-                fitness = self.evaluate_fitness(weights)
-                fitnesses.append(fitness)
+                    fitness = self.evaluate_fitness(weights)
+                    fitnesses.append(fitness)
 
             # Statistics
             avg_fitness = sum(fitnesses) / len(fitnesses)
@@ -665,6 +728,12 @@ class GeneticAlgorithm:
             if verbose:
                 print(f"\n💡 Tip: Check {final_viz_path} to see the evolution graph!")
 
+        # Cleanup multiprocessing pool
+        if self.pool is not None:
+            self.pool.close()
+            self.pool.join()
+            self.pool = None
+
         return self.best_ever_weights
 
     def save_best_model(self):
@@ -730,6 +799,8 @@ def main():
                         help='Games per individual for fitness evaluation (default: 5)')
     parser.add_argument('--lookahead', action='store_true',
                         help='Enable one-piece lookahead (much slower but better results)')
+    parser.add_argument('--workers', '-w', type=int, default=1,
+                        help='Number of parallel workers (default: 1, use 4-8 for speedup)')
     parser.add_argument('--visualize', '-v', action='store_true',
                         help='Show real-time evolution graph (requires matplotlib)')
     parser.add_argument('--no-save-every', action='store_true',
@@ -752,7 +823,8 @@ def main():
     ga = GeneticAlgorithm(
         population_size=args.population,
         games_per_individual=args.games,
-        use_lookahead=args.lookahead
+        use_lookahead=args.lookahead,
+        workers=args.workers
     )
 
     best_weights = ga.run(
