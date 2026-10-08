@@ -12,9 +12,11 @@ score = w_height * aggregate_height
       + w_lines  * lines_cleared_by_the_move
       + w_holes  * holes
       + w_bump   * bumpiness
+      + w_wells  * cumulative_wells
+      + w_depth  * hole_depth
 ```
 
-## The four features (`tetris/features.py`)
+## Features (`tetris/features.py`)
 
 | feature | definition | sign |
 |---|---|---|
@@ -22,6 +24,12 @@ score = w_height * aggregate_height
 | `lines` | lines cleared by the move being evaluated (both moves with lookahead) | positive: reward clears |
 | `holes` | empty cells with a filled cell somewhere above them in the same column | negative: holes are hard to clear |
 | `bumpiness` | sum of `|h[i] - h[i+1]|` over adjacent columns | negative: a flat surface fits more pieces |
+| `wells` | sum of `d(d+1)/2` over columns, where `d` is how far a column sits below its lower neighbour (walls count as infinitely high) | negative: deep 1-wide gaps need an I-piece |
+| `hole_depth` | for every hole, the filled cells above it in its column | negative: buried holes are permanent |
+
+`wells` and `hole_depth` were added in October 2026 after analysing 500 recorded
+baseline games (see *Finding new features* below). Models saved without weights
+for them get 0, so they play exactly as before.
 
 Weights are scale-invariant: multiplying all of them by the same positive
 number picks the same moves. Only the ratios matter.
@@ -82,6 +90,31 @@ uses a new stat, add threshold bounds in `training/ga.py`. Then train with
 
 Seed ranges never overlap (`tetris/play.py`): test 0…, validation 1,000,000…,
 training 2,000,000….
+
+## Finding new features
+
+```bash
+python experiments/record_games.py models/baseline_single_v1.json --games 500
+python experiments/analyze_games.py runs/games/baseline_single_v1.jsonl.gz
+```
+
+`record_games.py` saves, per game, the final board, the last 300 boards before
+the end (with move, regime and lines cleared), a snapshot every 100 pieces, the
+piece that could not be placed, and piece droughts at death. `analyze_games.py`
+computes ~15 candidate features on every board and writes
+`results/game_analysis/<model>/report.html` with: a gallery of final boards,
+cell/hole heatmaps, feature trajectories before death, warning power (AUC) and
+added information beyond the current features (partial correlation), death
+causes, and how the spiral starts from the last healthy board.
+
+What the baseline analysis found (500 games):
+- Deaths are slow spirals: typically 30-70 pieces from the last healthy board.
+- 53% of deaths happen 12+ pieces into an I-piece drought (16% expected by
+  chance), and the I-piece is almost never the one that can't be placed: the
+  board becomes I-dependent.
+- 47% of holes at death are in the two wall columns (20% if spread evenly).
+- Strongest added information beyond height/holes/bumpiness: hole depth
+  (+0.13 partial correlation with dying sooner) and cumulative wells (+0.12).
 
 ## Why scores need many games
 

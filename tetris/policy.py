@@ -54,7 +54,8 @@ class Policy:
             if rule['name'] not in weights:
                 raise ValueError(f"no weights for regime '{rule['name']}'")
         self.rules = rules
-        self.weights = weights
+        # Older models lack newer features: weight 0 keeps their behaviour unchanged
+        self.weights = {name: {f: float(w.get(f, 0.0)) for f in FEATURES} for name, w in weights.items()}
         self.meta = meta or {}
         self.regime_counts = Counter()
         self.moves_evaluated = 0

@@ -10,9 +10,21 @@ The four classic features (Lee 2013):
 `lines` is not a property of the board: completed rows are already cleared by the
 time a simulated board exists, so the caller passes how many lines the move cleared.
 (Counting full rows on the simulated board, as the old code did, always gave 0.)
+
+Two features added after analysing 500 recorded baseline games (Oct 2026,
+experiments/analyze_games.py), the two strongest signals beyond the four above:
+- wells:      cumulative wells, sum of d*(d+1)/2 over every column, where d is how far
+              the column sits below its lower neighbour (walls count as infinitely
+              high). Penalises deep 1-wide gaps that only an I-piece can fill;
+              deaths cluster in I-piece droughts.
+- hole_depth: for every hole, the number of filled cells above it in its column.
+              A hole under one cell is easy to uncover, one under six is permanent.
+
+Models without weights for a feature use 0 (see Policy), so older 4-feature
+models behave exactly as before.
 """
 
-FEATURES = ('height', 'lines', 'holes', 'bumpiness')
+FEATURES = ('height', 'lines', 'holes', 'bumpiness', 'wells', 'hole_depth')
 
 
 def board_stats(game):
@@ -20,7 +32,7 @@ def board_stats(game):
     Single pass over the board.
 
     Returns:
-        (heights, holes) where heights is a per-column list
+        (heights, holes, hole_depth) where heights is a per-column list
     """
     board = game.board
     first = 0  # skip the fully empty rows at the top
@@ -28,6 +40,7 @@ def board_stats(game):
         first += 1
     heights = []
     holes = 0
+    hole_depth = 0
     for column in zip(*board[first:]):
         n = len(column)
         empty = column.count(0)
@@ -38,24 +51,46 @@ def board_stats(game):
         while column[top] == 0:
             top += 1
         heights.append(n - top)
-        holes += empty - top  # every empty cell below the top is a hole
+        if empty > top:  # every empty cell below the top is a hole
+            holes += empty - top
+            filled = 0
+            for cell in column[top:]:
+                if cell == 0:
+                    hole_depth += filled
+                else:
+                    filled += 1
     if not heights:
         heights = [0] * game.width
-    return heights, holes
+    return heights, holes, hole_depth
 
 
 def bumpiness(heights):
     return sum(abs(heights[i] - heights[i + 1]) for i in range(len(heights) - 1))
 
 
+def wells(heights):
+    """Cumulative wells: sum of d*(d+1)/2 over column depths below the lower neighbour."""
+    total = 0
+    last = len(heights) - 1
+    for i, h in enumerate(heights):
+        left = heights[i - 1] if i > 0 else 10 ** 6
+        right = heights[i + 1] if i < last else 10 ** 6
+        d = min(left, right) - h
+        if d > 0:
+            total += d * (d + 1) // 2
+    return total
+
+
 def compute_features(game, lines=0):
-    """All four features as a dict."""
-    heights, holes = board_stats(game)
+    """All features as a dict."""
+    heights, holes, hole_depth = board_stats(game)
     return {
         'height': sum(heights),
         'lines': lines,
         'holes': holes,
         'bumpiness': bumpiness(heights),
+        'wells': wells(heights),
+        'hole_depth': hole_depth,
     }
 
 
@@ -63,20 +98,26 @@ def evaluate(game, lines, weights):
     """Weighted sum of features (higher is better). Hot path: avoids building dicts."""
     if game.game_over:
         return float('-inf')
-    heights, holes = board_stats(game)
-    return (weights['height'] * sum(heights)
-            + weights['lines'] * lines
-            + weights['holes'] * holes
-            + weights['bumpiness'] * bumpiness(heights))
+    heights, holes, hole_depth = board_stats(game)
+    score = (weights['height'] * sum(heights)
+             + weights['lines'] * lines
+             + weights['holes'] * holes
+             + weights['bumpiness'] * bumpiness(heights)
+             + weights['hole_depth'] * hole_depth)
+    if weights['wells']:
+        score += weights['wells'] * wells(heights)
+    return score
 
 
 # Board statistics that regime rules can condition on (computed on the board
 # *before* the current piece is placed).
 def regime_stats(game):
-    heights, holes = board_stats(game)
+    heights, holes, hole_depth = board_stats(game)
     return {
         'max_height': max(heights),
         'agg_height': sum(heights),
         'holes': holes,
         'bumpiness': bumpiness(heights),
+        'wells': wells(heights),
+        'hole_depth': hole_depth,
     }

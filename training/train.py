@@ -19,6 +19,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from tetris.features import FEATURES
 from tetris.policy import Policy, TEMPLATES
 from training.ga import GeneticAlgorithm
 
@@ -27,6 +28,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--model', choices=sorted(TEMPLATES), default='single',
                         help='rule template to evolve (default: single)')
+    parser.add_argument('--features', default=','.join(FEATURES),
+                        help=f"comma-separated features to evolve (others fixed at 0; default: all of {','.join(FEATURES)})")
     parser.add_argument('--generations', '-g', type=int, default=50)
     parser.add_argument('--population', '-p', type=int, default=50)
     parser.add_argument('--games', type=int, default=5, help='games per individual per generation')
@@ -47,6 +50,11 @@ def main():
         args.generations, args.population, args.games = 3, 10, 2
         args.max_pieces, args.validation_games = 500, 4
 
+    features = [f for f in args.features.split(',') if f]
+    unknown = set(features) - set(FEATURES)
+    if unknown:
+        parser.error(f"unknown features: {', '.join(sorted(unknown))}")
+
     init_policy = None if args.init == 'none' else Policy.load(args.init)
 
     ga = GeneticAlgorithm(
@@ -54,6 +62,7 @@ def main():
         max_pieces=args.max_pieces, lookahead=args.lookahead, randomizer=args.randomizer,
         workers=args.workers, init_policy=init_policy, rng_seed=args.seed,
         validation_games=args.validation_games,
+        features=features,
     )
 
     if args.bench:

@@ -8,7 +8,7 @@ from tetris.policy import Policy
 
 def test_empty_board():
     f = compute_features(TetrisGame())
-    assert f == {'height': 0, 'lines': 0, 'holes': 0, 'bumpiness': 0}
+    assert f == {'height': 0, 'lines': 0, 'holes': 0, 'bumpiness': 0, 'wells': 0, 'hole_depth': 0}
 
 
 def test_aggregate_height():
@@ -70,3 +70,40 @@ def test_regime_stats():
     assert s['max_height'] == 10
     assert s['holes'] == 9
     assert s['agg_height'] == 11
+
+
+def test_wells():
+    game = TetrisGame()
+    for col in range(10):
+        if col != 4:
+            for row in range(17, 20):
+                game.board[row][col] = 'X'
+    # column 4 is a 3-deep well: 1 + 2 + 3 = 6; flat edges against the walls are not wells
+    assert compute_features(game)['wells'] == 6
+
+
+def test_wall_well():
+    game = TetrisGame()
+    for col in range(1, 10):
+        game.board[19][col] = 'X'
+        game.board[18][col] = 'X'
+    # column 0 sits 2 below its neighbour and the wall counts as infinitely high: 1 + 2 = 3
+    assert compute_features(game)['wells'] == 3
+
+
+def test_hole_depth():
+    game = TetrisGame()
+    game.board[19][0] = 'X'
+    game.board[16][0] = 'X'
+    game.board[15][0] = 'X'
+    # rows 17 and 18 are holes, each under 2 filled cells
+    f = compute_features(game)
+    assert f['holes'] == 2
+    assert f['hole_depth'] == 4
+
+
+def test_hole_depth_counts_only_cells_above():
+    game = TetrisGame()
+    game.board[19][0] = 'X'   # filled below the hole doesn't count
+    game.board[17][0] = 'X'   # one cell above the hole at row 18
+    assert compute_features(game)['hole_depth'] == 1

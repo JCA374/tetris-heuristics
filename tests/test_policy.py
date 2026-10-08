@@ -99,16 +99,31 @@ def test_last_rule_must_be_default():
 
 
 def test_genome_sizes_and_roundtrip():
-    assert len(gene_spec(TEMPLATES['single'])) == 4
+    four = ('height', 'lines', 'holes', 'bumpiness')
+    assert len(gene_spec(TEMPLATES['single'], four)) == 4
+    assert len(gene_spec(TEMPLATES['regime'], four)) == 14
+    assert len(gene_spec(TEMPLATES['single'])) == 6
     spec = gene_spec(TEMPLATES['regime'])
-    assert len(spec) == 14
+    assert len(spec) == 20
 
     # A single model copied into the regime template keeps its weights in every regime
     rng = random.Random(0)
     genome = genome_from_policy(TEMPLATES['regime'], spec, Policy.single(W), rng)
     policy = genome_to_policy(TEMPLATES['regime'], genome)
     for name in ('normal', 'danger', 'repair'):
-        assert policy.weights[name] == W
+        assert policy.weights[name] == dict(W, wells=0.0, hole_depth=0.0)
     for rule in policy.rules[:-1]:
         low, high, _ = spec[f"{rule['name']}.threshold"]
         assert low <= rule['threshold'] <= high and isinstance(rule['threshold'], int)
+
+
+def test_old_models_get_zero_weights_for_new_features():
+    p = Policy.single(W)
+    assert p.weights['default']['wells'] == 0.0 and p.weights['default']['hole_depth'] == 0.0
+
+
+def test_unused_feature_genes_are_fixed_at_zero():
+    spec = gene_spec(TEMPLATES['single'], ('height', 'holes'))
+    policy = genome_to_policy(TEMPLATES['single'], {k: -1.0 for k in spec})
+    assert policy.weights['default'] == {'height': -1.0, 'lines': 0.0, 'holes': -1.0, 'bumpiness': 0.0,
+                                         'wells': 0.0, 'hole_depth': 0.0}

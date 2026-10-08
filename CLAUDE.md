@@ -5,8 +5,8 @@ Guidance for Claude Code when working in this repository.
 ## Project
 
 Heuristic Tetris AI (no deep learning). Every drop is scored with a weighted sum
-of 4 features (height, lines, holes, bumpiness), and the weights are evolved
-with a GA. Current research question: does a **regime-switching** policy
+of 6 features (height, lines, holes, bumpiness, wells, hole_depth), and the
+weights are evolved with a GA. Current research question: does a **regime-switching** policy
 (different weight sets chosen by board-state rules) beat a single weight set?
 See README.md for results and docs/HEURISTICS.md for the design.
 
@@ -18,6 +18,8 @@ python demo.py [--model models/X.json] [--delay 0]        # terminal demo
 python training/train.py --model single|regime --workers 8 --out models/X.json
 python training/train.py --model regime --quick           # smoke test
 python experiments/compare.py models/A.json models/B.json --games 50
+python experiments/record_games.py models/X.json --games 500         # board logs
+python experiments/analyze_games.py runs/games/X.jsonl.gz            # feature research report
 ```
 
 ## Architecture
@@ -28,13 +30,14 @@ python experiments/compare.py models/A.json models/B.json --games 50
   `tests/test_engine.py` checks it against the reference scan.
 - `tetris/features.py`: `evaluate(game, lines, weights)` is the hot path. `lines`
   is passed in (lines cleared by the move), because cleared rows are gone from
-  the simulated board.
+  the simulated board. Models without a weight for a feature get 0 (Policy),
+  so adding features never changes how old models play.
 - `tetris/policy.py` `Policy`: ordered rules (`stat`/`op`/`threshold`, and the last one
   is the default) with one weight set per regime. The regime is selected from the
   **pre-move** board, then used for all candidates and lookahead.
   `Policy.single(w)` is a one-rule policy. `TEMPLATES` defines the trainable rule sets.
-- `tetris/play.py` `play_game(policy, seed, max_pieces, lookahead, randomizer)`.
-  Seed ranges: test 0…, validation 1M…, train 2M…. Never mix them.
+- `tetris/play.py` `play_game(policy, seed, max_pieces, lookahead, randomizer, recorder)`.
+  Seed ranges: test 0…, validation 1M…, train 2M…, analysis 3M…. Never mix them.
 - `training/ga.py`: genes `<regime>.<feature>` and `<regime>.threshold`. Uses
   common random numbers per generation, an archive of accumulated evaluations,
   and a final pick on validation seeds.
@@ -47,6 +50,9 @@ python experiments/compare.py models/A.json models/B.json --games 50
   make sure moves stay identical (seeded games give the same lines).
 - To compare models, always use `experiments/compare.py` (paired, held-out seeds,
   ≥ 50 games). Single games or 5-game means are far too noisy.
+- New features: add to `FEATURES`/`board_stats`/`evaluate` in `tetris/features.py`
+  and to `WEIGHT_BOUNDS` in `training/ga.py`. Check the definition against
+  `experiments/analyze_games.py` if it came from there.
 - New board scenarios: add a template to `TEMPLATES` (plus threshold bounds in
   `training/ga.py` for new stats). No code changes elsewhere.
 - `runs/`, `results/` and `logs/` are git-ignored. Keep models worth keeping in `models/`.

@@ -6,7 +6,8 @@ A genome is a flat dict of genes derived from a policy rule template
     '<regime>.<feature>'  weight for that feature in that regime   (float)
     '<regime>.threshold'  switch threshold for a conditional regime (int)
 
-So the single model has 4 genes, the 3-regime model 3*4 + 2 = 14.
+With all 6 features the single model has 6 genes and the 3-regime model 3*6 + 2 = 20
+(with the original 4 features: 4 and 14). Features left out are fixed at weight 0.
 
 Noise control (Tetris line counts vary ~10x between games of the same policy):
 - Common random numbers: every individual in a generation plays the same
@@ -36,26 +37,30 @@ WEIGHT_BOUNDS = {
     'lines': (0.0, 5.0),
     'holes': (-10.0, 0.0),
     'bumpiness': (-5.0, 0.0),
+    'wells': (-5.0, 0.0),
+    'hole_depth': (-5.0, 0.0),
 }
 THRESHOLD_BOUNDS = {
     'holes': (1, 10),
     'max_height': (4, 18),
     'agg_height': (10, 150),
     'bumpiness': (2, 30),
+    'wells': (1, 30),
+    'hole_depth': (1, 40),
 }
 
 
 # --- genome <-> policy ---------------------------------------------------------
 
-def gene_spec(template):
-    """{gene_name: (low, high, is_int)} for a rule template."""
+def gene_spec(template, features=FEATURES):
+    """{gene_name: (low, high, is_int)} for a rule template and feature subset."""
     spec = {}
     for rule in template:
         name = rule['name']
         if 'stat' in rule:
             low, high = THRESHOLD_BOUNDS[rule['stat']]
             spec[f'{name}.threshold'] = (low, high, True)
-        for feature in FEATURES:
+        for feature in features:
             low, high = WEIGHT_BOUNDS[feature]
             spec[f'{name}.{feature}'] = (low, high, False)
     return spec
@@ -70,7 +75,7 @@ def genome_to_policy(template, genome, meta=None):
         if 'stat' in rule:
             rule['threshold'] = int(genome[f'{name}.threshold'])
         rules.append(rule)
-        weights[name] = {f: genome[f'{name}.{f}'] for f in FEATURES}
+        weights[name] = {f: genome.get(f'{name}.{f}', 0.0) for f in FEATURES}
     return Policy(rules, weights, meta)
 
 
@@ -88,7 +93,8 @@ def genome_from_policy(template, spec, policy, rng):
         name = rule['name']
         w = policy.weights.get(name, default)
         for f in FEATURES:
-            genome[f'{name}.{f}'] = clamp(spec[f'{name}.{f}'], w[f])
+            if f'{name}.{f}' in spec:
+                genome[f'{name}.{f}'] = clamp(spec[f'{name}.{f}'], w[f])
         if 'stat' in rule:
             src = model_rules.get(name)
             low, high, _ = spec[f'{name}.threshold']
@@ -122,10 +128,12 @@ def _play_task(args):
 class GeneticAlgorithm:
     def __init__(self, template_name='single', population_size=50, games=5,
                  max_pieces=20000, lookahead=False, randomizer='random', workers=1,
-                 init_policy=None, rng_seed=None, validation_games=30, candidates=5):
+                 init_policy=None, rng_seed=None, validation_games=30, candidates=5,
+                 features=FEATURES):
         self.template_name = template_name
         self.template = TEMPLATES[template_name]
-        self.spec = gene_spec(self.template)
+        self.features = tuple(features)
+        self.spec = gene_spec(self.template, self.features)
         self.population_size = population_size
         self.games = games
         self.max_pieces = max_pieces
@@ -229,7 +237,8 @@ class GeneticAlgorithm:
         self.run_dir = os.path.join('runs', f"{datetime.now():%Y%m%d_%H%M%S}_{self.template_name}")
         os.makedirs(self.run_dir, exist_ok=True)
         if verbose:
-            print(f"GA: model={self.template_name} genes={len(self.spec)} pop={self.population_size} "
+            print(f"GA: model={self.template_name} features={','.join(self.features)} "
+                  f"genes={len(self.spec)} pop={self.population_size} "
                   f"games={self.games} cap={self.max_pieces} lookahead={self.lookahead} "
                   f"randomizer={self.randomizer} workers={self.workers}")
             print(f"Run directory: {self.run_dir}")
@@ -294,6 +303,7 @@ class GeneticAlgorithm:
             'lookahead': self.lookahead,
             'randomizer': self.randomizer,
             'init_model': self.init_policy.meta.get('name') if self.init_policy else None,
+            'features': list(self.features),
             'training_minutes': round((time.time() - start) / 60, 1),
         })
         policy.save(os.path.join(self.run_dir, 'model.json'))
@@ -343,6 +353,7 @@ class GeneticAlgorithm:
     def save_checkpoint(self, population, fitnesses):
         data = {
             'template': self.template_name,
+            'features': list(self.features),
             'parameters': {
                 'population_size': self.population_size, 'games': self.games,
                 'max_pieces': self.max_pieces, 'lookahead': self.lookahead,
