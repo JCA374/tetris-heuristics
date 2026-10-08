@@ -9,14 +9,9 @@ Requires: pip install pygame
 import pygame
 import sys
 import os
-import time
 
-# Add src directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-
-from tetris_game import TetrisGame
-from tetris_ai import TetrisAI
-from tetris_pieces import SevenBagGenerator, get_random_piece
+from tetris import TetrisGame, Policy, PieceStream
+from demo import default_model
 
 # Initialize Pygame
 pygame.init()
@@ -64,13 +59,16 @@ FPS = 60
 class TetrisGameGUI:
     """Pygame GUI for Tetris AI."""
 
-    def __init__(self, use_lookahead=False, speed=1.0):
+    def __init__(self, policy, model_name, use_lookahead=False, speed=1.0, randomizer='random'):
         """
         Initialize the game GUI.
 
         Args:
+            policy: tetris.policy.Policy to play with
+            model_name: shown in the stats panel
             use_lookahead: Enable one-piece lookahead
             speed: Game speed multiplier (higher = faster)
+            randomizer: 'random' or 'bag'
         """
         self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
         pygame.display.set_caption("Tetris AI - Pygame Demo")
@@ -81,19 +79,15 @@ class TetrisGameGUI:
 
         # Game state
         self.game = TetrisGame()
-        self.ai = TetrisAI()
+        self.ai = policy
+        self.model_name = model_name
+        self.randomizer = randomizer
         self.use_lookahead = use_lookahead
         self.speed = speed
         self.move_delay = max(50, int(500 / speed))  # ms between moves
 
         # Piece generation
-        if use_lookahead:
-            self.piece_generator = SevenBagGenerator()
-            self.current_piece = self.piece_generator.get_next_piece()
-            self.next_piece = self.piece_generator.get_next_piece()
-        else:
-            self.current_piece = get_random_piece()
-            self.next_piece = None
+        self.stream = PieceStream(randomizer)
 
         # Timing
         self.last_move_time = pygame.time.get_ticks()
@@ -187,6 +181,8 @@ class TetrisGameGUI:
         """Draw game statistics."""
         y = STATS_Y
 
+        self.draw_text(self.model_name, STATS_X, y - 35, self.font_small, (0, 240, 240))
+
         # Current game stats
         self.draw_text("GAME STATS", STATS_X, y, self.font_small, WHITE)
         y += 35
@@ -195,6 +191,7 @@ class TetrisGameGUI:
             ("Lines", f"{self.game.lines_cleared}", (0, 255, 100)),
             ("Score", f"{self.game.score:,}", (255, 215, 0)),
             ("Pieces", f"{self.game.pieces_placed}", WHITE),
+            ("Regime", getattr(self.ai, 'last_regime', '-'), (255, 100, 255)),
         ]
 
         for label, value, color in stats:
@@ -245,12 +242,10 @@ class TetrisGameGUI:
         self.draw_board()
         self.draw_stats()
 
-        # Current piece preview
-        self.draw_piece_preview(self.current_piece, PREVIEW_X, PREVIEW_Y, "CURRENT")
-
-        # Next piece preview (if lookahead enabled)
-        if self.next_piece:
-            self.draw_piece_preview(self.next_piece, PREVIEW_X, PREVIEW_Y + 170, "NEXT")
+        # Piece previews
+        self.draw_piece_preview(self.stream.current, PREVIEW_X, PREVIEW_Y, "CURRENT")
+        self.draw_piece_preview(self.stream.next, PREVIEW_X, PREVIEW_Y + 170,
+                                "NEXT (lookahead)" if self.use_lookahead else "NEXT")
 
         # Controls hint
         hint = "SPACE: Pause | Q: Quit"
@@ -264,7 +259,8 @@ class TetrisGameGUI:
             return
 
         # Get best move from AI
-        move = self.ai.get_best_move(self.game, self.current_piece, next_piece=self.next_piece)
+        next_piece = self.stream.next if self.use_lookahead else None
+        move = self.ai.get_best_move(self.game, self.stream.current, next_piece=next_piece)
 
         if move is None:
             self.game.game_over = True
@@ -273,14 +269,8 @@ class TetrisGameGUI:
         rotation, col = move
 
         # Make the move
-        self.game.place_piece(self.current_piece, rotation, col)
-
-        # Advance to next piece
-        if self.use_lookahead:
-            self.current_piece = self.next_piece
-            self.next_piece = self.piece_generator.get_next_piece()
-        else:
-            self.current_piece = get_random_piece()
+        self.game.place_piece(self.stream.current, rotation, col)
+        self.stream.advance()
 
     def handle_game_over(self):
         """Handle game over."""
@@ -318,13 +308,7 @@ class TetrisGameGUI:
 
         # Reset game
         self.game = TetrisGame()
-        if self.use_lookahead:
-            self.piece_generator = SevenBagGenerator()
-            self.current_piece = self.piece_generator.get_next_piece()
-            self.next_piece = self.piece_generator.get_next_piece()
-        else:
-            self.current_piece = get_random_piece()
-            self.next_piece = None
+        self.stream = PieceStream(self.randomizer)
 
     def run(self):
         """Main game loop."""
@@ -367,6 +351,8 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description='Tetris AI with Pygame Graphics')
+    parser.add_argument('--model', help='model JSON (default: best in models/)')
+    parser.add_argument('--randomizer', choices=['random', 'bag'], default='random')
     parser.add_argument('--lookahead', action='store_true',
                         help='Enable one-piece lookahead')
     parser.add_argument('--speed', type=float, default=1.0,
@@ -375,7 +361,11 @@ def main():
     args = parser.parse_args()
 
     try:
-        game = TetrisGameGUI(use_lookahead=args.lookahead, speed=args.speed)
+        path = args.model or default_model()
+        policy = Policy.load(path)
+        name = os.path.splitext(os.path.basename(path))[0]
+        game = TetrisGameGUI(policy, name, use_lookahead=args.lookahead, speed=args.speed,
+                             randomizer=args.randomizer)
         game.run()
     except Exception as e:
         print(f"\n❌ Error: {e}")

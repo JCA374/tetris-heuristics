@@ -1,14 +1,6 @@
-# Tetris AI with Heuristics
-# Python 3.7+
+# Core engine, training, comparison and terminal demo: Python 3.8+ stdlib only.
 
-# Core AI has NO dependencies - uses Python stdlib only!
-# Terminal demos work without any installation.
-
-# Optional: For graphical Pygame demo (demo_pygame.py)
-pygame>=2.0.0
-
-# Optional: For GA training with visualization (train_ga.py --visualize)
-matplotlib>=3.0.0
-
-# Future enhancements:
-# numpy>=1.20.0
+# Optional
+matplotlib>=3.0.0   # training/train.py writes runs/<run>/evolution.png
+pygame>=2.0.0       # demo_pygame.py
+pytest>=7.0         # python -m pytest tests

@@ -1,390 +1,128 @@
 #!/usr/bin/env python3
 """
-Tetris AI Demo - Watch the AI Play
+Watch a model play Tetris in the terminal (colored, no dependencies).
 
-Allows you to watch the AI play Tetris in real-time with different weight sets.
+Examples:
+    python demo.py                                   # best available model
+    python demo.py --model models/regime_v2.json     # shows which regime is active
+    python demo.py --delay 0 --pieces 2000           # fast run
+    python demo.py --lookahead --seed 7
+    python demo.py --list                            # models in models/
 """
 
 import argparse
-import time
-import sys
+import glob
 import os
+import sys
+import time
 
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+from tetris import Policy, play_game
+from tetris.features import compute_features
 
-from tetris_game import TetrisGame
-from tetris_ai import TetrisAI
-
-
-# Pre-configured weight sets from research
-WEIGHT_SETS = {
-    'current': {
-        'name': 'Current Implementation (Lee 2013)',
-        'weights': {
-            'height': -0.510066,
-            'lines': 0.760666,
-            'holes': -0.35663,
-            'bumpiness': -0.184483
-        },
-        'expected_performance': '500-2,000 lines',
-        'source': 'GA-optimized by Y. Lee (2013)'
-    },
-
-    'aggressive': {
-        'name': 'Aggressive Line Clearing',
-        'weights': {
-            'height': -0.3,
-            'lines': 1.0,
-            'holes': -0.5,
-            'bumpiness': -0.1
-        },
-        'expected_performance': '100-1,000 lines',
-        'source': 'Hand-tuned for maximum line clearing'
-    },
-
-    'defensive': {
-        'name': 'Defensive (Minimize Holes)',
-        'weights': {
-            'height': -0.6,
-            'lines': 0.5,
-            'holes': -0.8,
-            'bumpiness': -0.3
-        },
-        'expected_performance': '200-1,500 lines',
-        'source': 'Hand-tuned for survival'
-    },
-
-    'balanced': {
-        'name': 'Balanced Strategy',
-        'weights': {
-            'height': -0.5,
-            'lines': 0.75,
-            'holes': -0.4,
-            'bumpiness': -0.2
-        },
-        'expected_performance': '300-2,000 lines',
-        'source': 'Balanced across all metrics'
-    }
+RESET, BOLD, DIM = '\033[0m', '\033[1m', '\033[2m'
+PIECE_COLORS = {
+    'I': '\033[96m', 'O': '\033[93m', 'T': '\033[95m', 'S': '\033[92m',
+    'Z': '\033[91m', 'J': '\033[94m', 'L': '\033[38;5;214m',
 }
+REGIME_COLORS = {'normal': '\033[92m', 'danger': '\033[91m', 'repair': '\033[93m', 'default': '\033[96m'}
+MODEL_PREFERENCE = ['regime_v2', 'single_v2', 'baseline_single_v1']
 
 
-def clear_screen():
-    """Clear the terminal screen."""
-    os.system('clear' if os.name != 'nt' else 'cls')
+def default_model():
+    for name in MODEL_PREFERENCE:
+        path = os.path.join('models', f'{name}.json')
+        if os.path.exists(path):
+            return path
+    sys.exit('No model found in models/. Train one with training/train.py')
 
 
-def print_game_state(game, piece_name, move_num, delay, ai_name, next_piece_name=None, use_lookahead=False):
-    """Print the current game state in an attractive format."""
-    clear_screen()
-
-    print("=" * 70)
-    print(f"🎮  TETRIS AI DEMO - {ai_name}")
-    if use_lookahead:
-        print("🔮  ONE-PIECE LOOKAHEAD ENABLED")
-    print("=" * 70)
-    print()
-    print(game.display())
-    print()
-    print(f"📊  GAME STATS")
-    print(f"├─ Current Piece: {piece_name}")
-    if next_piece_name and use_lookahead:
-        print(f"├─ Next Piece: {next_piece_name}")
-    print(f"├─ Move: #{move_num}")
-    print(f"├─ Lines Cleared: {game.lines_cleared}")
-    print(f"├─ Score: {game.score}")
-    print(f"└─ Speed: {1000/delay:.0f} moves/sec ({delay}ms delay)")
-    print()
-    print("Press Ctrl+C to stop")
-    print("=" * 70)
+def piece_lines(piece, label):
+    coords = piece.get_rotation(0)
+    rows = max(r for r, _ in coords) + 1
+    cols = max(c for _, c in coords) + 1
+    color = PIECE_COLORS.get(piece.name, '')
+    out = [f'{BOLD}{label}{RESET}']
+    for r in range(rows):
+        out.append('  ' + ''.join(color + '██' + RESET if (r, c) in coords else '  ' for c in range(cols)))
+    return out
 
 
-def demo_play(weight_set_name='current', max_pieces=None, delay=200, verbose=False, use_lookahead=False):
-    """
-    Watch the AI play Tetris in real-time.
+def render(game, stream, policy, model_name, lookahead):
+    board = [f'{BOLD}┌{"─" * (game.width * 2)}┐{RESET}']
+    for row in game.board:
+        cells = ''.join('  ' if c == 0 else PIECE_COLORS.get(c, '') + '██' + RESET for c in row)
+        board.append(f'{BOLD}│{RESET}{cells}{BOLD}│{RESET}')
+    board.append(f'{BOLD}└{"─" * (game.width * 2)}┘{RESET}')
 
-    Args:
-        weight_set_name: Name of weight set to use
-        max_pieces: Maximum pieces to place (None for unlimited)
-        delay: Delay in ms between moves
-        verbose: Show detailed move evaluations
-        use_lookahead: Enable one-piece lookahead
-    """
-    # Load weight set
-    if weight_set_name not in WEIGHT_SETS:
-        print(f"Error: Unknown weight set '{weight_set_name}'")
-        print(f"Available: {', '.join(WEIGHT_SETS.keys())}")
-        return
+    regime = getattr(policy, 'last_regime', '-')
+    features = compute_features(game)
+    side = [
+        f'{BOLD}{model_name}{RESET}',
+        '',
+        f'Lines   {BOLD}{game.lines_cleared}{RESET}',
+        f'Pieces  {game.pieces_placed}',
+        f'Score   {game.score}',
+        '',
+        f'Regime  {REGIME_COLORS.get(regime, "")}{BOLD}{regime}{RESET}',
+    ]
+    if not policy.is_single:
+        total = sum(policy.regime_counts.values()) or 1
+        for name, count in sorted(policy.regime_counts.items()):
+            side.append(f'  {name:<7} {count / total:5.0%}')
+    side += [
+        '',
+        f'{DIM}height {features["height"]}  holes {features["holes"]}  bump {features["bumpiness"]}{RESET}',
+        '',
+    ]
+    side += piece_lines(stream.next, 'NEXT' + (' (lookahead)' if lookahead else ''))
 
-    weight_config = WEIGHT_SETS[weight_set_name]
-
-    # Create game and AI
-    game = TetrisGame()
-    ai = TetrisAI(weights=weight_config['weights'])
-
-    print("\n" + "=" * 60)
-    print(f"🎮  STARTING TETRIS AI DEMO")
-    print("=" * 60)
-    print(f"\nModel: {weight_config['name']}")
-    print(f"Source: {weight_config['source']}")
-    print(f"Expected Performance: {weight_config['expected_performance']}")
-    if use_lookahead:
-        print(f"\n🔮 ONE-PIECE LOOKAHEAD: ENABLED")
-        print(f"   Expected: 10× performance boost (5,000-10,000 lines)")
-    print(f"\nWeights:")
-    for key, val in weight_config['weights'].items():
-        print(f"  {key:12s}: {val:+.6f}")
-    print("\n" + "=" * 60)
-    print("\nStarting game in 3 seconds...")
-    time.sleep(3)
-
-    # Setup piece generation
-    if use_lookahead:
-        from tetris_pieces import SevenBagGenerator
-        piece_generator = SevenBagGenerator()
-        current_piece = piece_generator.get_next_piece()
-        next_piece = piece_generator.get_next_piece()
-    else:
-        from tetris_pieces import get_random_piece
-        current_piece = get_random_piece()
-        next_piece = None
-
-    pieces_placed = 0
-    move_num = 0
-
-    try:
-        while not game.game_over:
-            if max_pieces and pieces_placed >= max_pieces:
-                break
-
-            # Find best move
-            move = ai.get_best_move(game, current_piece, next_piece=next_piece, verbose=verbose)
-
-            if move is None:
-                game.game_over = True
-                break
-
-            rotation, col = move
-
-            # Display board before move
-            next_name = next_piece.name if next_piece else None
-            print_game_state(game, current_piece.name, move_num, delay, weight_config['name'],
-                           next_piece_name=next_name, use_lookahead=use_lookahead)
-
-            # Wait for animation
-            time.sleep(delay / 1000.0)
-
-            # Make the move
-            game.place_piece(current_piece, rotation, col)
-            pieces_placed += 1
-            move_num += 1
-
-            # Advance to next piece
-            if use_lookahead:
-                current_piece = next_piece
-                next_piece = piece_generator.get_next_piece()
-            else:
-                current_piece = get_random_piece()
-
-    except KeyboardInterrupt:
-        print("\n\n⚠️  Game stopped by user")
-
-    # Final statistics
-    clear_screen()
-    print("\n" + "=" * 60)
-    print("🏁  GAME OVER")
-    print("=" * 60)
-    print()
-    print(game.display())
-    print()
-    print("📊  FINAL STATISTICS")
-    print("=" * 60)
-    print(f"Model: {weight_config['name']}")
-    print(f"Lines Cleared: {game.lines_cleared}")
-    print(f"Pieces Placed: {game.pieces_placed}")
-    print(f"Final Score: {game.score}")
-    print(f"Moves Evaluated: {ai.moves_evaluated:,}")
-
-    if game.pieces_placed > 0:
-        print(f"Average Lines/Piece: {game.lines_cleared / game.pieces_placed:.2f}")
-
-    print("=" * 60)
-    print()
-
-
-def compare_models(games_per_model=5):
-    """
-    Compare all available weight sets.
-
-    Args:
-        games_per_model: Number of games to run per model
-    """
-    print("\n" + "=" * 60)
-    print("📊  MODEL COMPARISON")
-    print("=" * 60)
-    print(f"\nRunning {games_per_model} games per model...")
-    print()
-
-    results = {}
-
-    for model_name, config in WEIGHT_SETS.items():
-        print(f"\nTesting {config['name']}...")
-
-        ai = TetrisAI(weights=config['weights'])
-        game_results = []
-
-        for game_num in range(games_per_model):
-            game = TetrisGame()
-            ai.play_game(game, verbose=False, show_board=False)
-
-            game_results.append({
-                'lines': game.lines_cleared,
-                'pieces': game.pieces_placed,
-                'score': game.score
-            })
-
-            print(f"  Game {game_num+1}/{games_per_model}: {game.lines_cleared} lines")
-
-        # Calculate averages
-        avg_lines = sum(g['lines'] for g in game_results) / games_per_model
-        avg_pieces = sum(g['pieces'] for g in game_results) / games_per_model
-        avg_score = sum(g['score'] for g in game_results) / games_per_model
-        max_lines = max(g['lines'] for g in game_results)
-
-        results[model_name] = {
-            'config': config,
-            'avg_lines': avg_lines,
-            'avg_pieces': avg_pieces,
-            'avg_score': avg_score,
-            'max_lines': max_lines,
-            'games': game_results
-        }
-
-    # Print comparison table
-    print("\n\n" + "=" * 80)
-    print("📊  COMPARISON RESULTS")
-    print("=" * 80)
-    print()
-    print(f"{'Model':<30} {'Avg Lines':<12} {'Max Lines':<12} {'Avg Score':<12}")
-    print("-" * 80)
-
-    # Sort by average lines
-    sorted_results = sorted(results.items(), key=lambda x: x[1]['avg_lines'], reverse=True)
-
-    for model_name, data in sorted_results:
-        config = data['config']
-        marker = "🏆" if model_name == sorted_results[0][0] else "  "
-        print(f"{marker} {config['name']:<28} {data['avg_lines']:<12.1f} "
-              f"{data['max_lines']:<12} {data['avg_score']:<12.0f}")
-
-    print("=" * 80)
-    print()
-    print(f"🏆 Winner: {sorted_results[0][1]['config']['name']}")
-    print(f"   Average: {sorted_results[0][1]['avg_lines']:.1f} lines")
-    print(f"   Best game: {sorted_results[0][1]['max_lines']} lines")
-    print()
-
-
-def list_models():
-    """List all available models with their details."""
-    print("\n" + "=" * 60)
-    print("📚  AVAILABLE MODELS")
-    print("=" * 60)
-    print()
-
-    for model_name, config in WEIGHT_SETS.items():
-        print(f"Model: {model_name}")
-        print(f"Name: {config['name']}")
-        print(f"Source: {config['source']}")
-        print(f"Expected Performance: {config['expected_performance']}")
-        print("Weights:")
-        for key, val in config['weights'].items():
-            print(f"  {key:12s}: {val:+.6f}")
-        print()
+    out = []
+    for i, line in enumerate(board):
+        out.append(line + '   ' + (side[i] if i < len(side) else ''))
+    return '\n'.join(out)
 
 
 def main():
-    """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description='Watch Tetris AI play with different strategies',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s                          # Watch current model play
-  %(prog)s --model aggressive       # Watch aggressive strategy
-  %(prog)s --delay 100              # Faster animation (100ms)
-  %(prog)s --max-pieces 50          # Stop after 50 pieces
-  %(prog)s --compare                # Compare all models
-  %(prog)s --list                   # List available models
-        """
-    )
-
-    parser.add_argument(
-        '--model', '-m',
-        type=str,
-        default='current',
-        help='Model to use (current, aggressive, defensive, balanced)'
-    )
-
-    parser.add_argument(
-        '--delay', '-d',
-        type=int,
-        default=200,
-        help='Delay between moves in milliseconds (default: 200)'
-    )
-
-    parser.add_argument(
-        '--max-pieces', '-p',
-        type=int,
-        default=None,
-        help='Maximum pieces to place (default: unlimited)'
-    )
-
-    parser.add_argument(
-        '--verbose', '-v',
-        action='store_true',
-        help='Show detailed move evaluation'
-    )
-
-    parser.add_argument(
-        '--compare', '-c',
-        action='store_true',
-        help='Compare all available models'
-    )
-
-    parser.add_argument(
-        '--list', '-l',
-        action='store_true',
-        help='List all available models'
-    )
-
-    parser.add_argument(
-        '--lookahead',
-        action='store_true',
-        help='Enable one-piece lookahead (10× performance boost)'
-    )
-
-    parser.add_argument(
-        '--games',
-        type=int,
-        default=5,
-        help='Number of games per model in comparison mode (default: 5)'
-    )
-
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--model', help='model JSON (default: best in models/)')
+    parser.add_argument('--delay', type=int, default=50, help='ms between pieces (0 = as fast as possible)')
+    parser.add_argument('--pieces', type=int, help='stop after N pieces')
+    parser.add_argument('--seed', type=int, help='piece sequence seed (default: random)')
+    parser.add_argument('--lookahead', action='store_true')
+    parser.add_argument('--randomizer', choices=['random', 'bag'], default='random')
+    parser.add_argument('--every', type=int, default=1, help='redraw every N pieces')
+    parser.add_argument('--list', action='store_true', help='list models and exit')
     args = parser.parse_args()
 
     if args.list:
-        list_models()
-    elif args.compare:
-        compare_models(games_per_model=args.games)
-    else:
-        demo_play(
-            weight_set_name=args.model,
-            max_pieces=args.max_pieces,
-            delay=args.delay,
-            verbose=args.verbose,
-            use_lookahead=args.lookahead
-        )
+        for path in sorted(glob.glob('models/*.json')):
+            policy = Policy.load(path)
+            print(f'\n{path}  ({policy.meta.get("validation_mean", "?")} validation lines)')
+            print(policy.describe())
+        return
+
+    path = args.model or default_model()
+    policy = Policy.load(path)
+    name = os.path.splitext(os.path.basename(path))[0]
+
+    def on_move(game, stream, policy):
+        if game.pieces_placed % args.every == 0:
+            sys.stdout.write('\033[H\033[J' + render(game, stream, policy, name, args.lookahead) + '\n')
+            sys.stdout.flush()
+            if args.delay:
+                time.sleep(args.delay / 1000)
+
+    try:
+        result = play_game(policy, seed=args.seed, max_pieces=args.pieces, lookahead=args.lookahead,
+                           randomizer=args.randomizer, on_move=on_move)
+    except KeyboardInterrupt:
+        print('\nStopped.')
+        return
+    print(f"\n{'Stopped' if result['capped'] else 'Game over'}: {result['lines']} lines, "
+          f"{result['pieces']} pieces, score {result['score']}")
+    if not policy.is_single:
+        total = sum(result['regime_counts'].values()) or 1
+        print('Regime usage: ' + ', '.join(f'{k} {v / total:.0%}' for k, v in sorted(result['regime_counts'].items())))
 
 
 if __name__ == '__main__':

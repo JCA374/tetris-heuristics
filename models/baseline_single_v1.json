@@ -1,0 +1,24 @@
+{
+  "type": "single",
+  "rules": [
+    {
+      "name": "default"
+    }
+  ],
+  "weights": {
+    "default": {
+      "height": -0.39488235672962724,
+      "lines": 0.0,
+      "holes": -7.819088030112632,
+      "bumpiness": -2.0
+    }
+  },
+  "meta": {
+    "name": "baseline_single_v1",
+    "source": "GA run logs/ga_training_20251112_225935, generation 98 (old best_model.json)",
+    "note": "The old engine never saw the lines feature (always 0), so lines is set to 0.0 to reproduce the old behaviour exactly. Trained lines weight was 1.087061.",
+    "reported_training_fitness": 5968.6,
+    "trained_with_lookahead": false,
+    "randomizer": "random"
+  }
+}

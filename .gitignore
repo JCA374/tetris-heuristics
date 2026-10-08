@@ -1,7 +1,8 @@
+# Training runs and benchmark outputs (models worth keeping go in models/)
 logs/
+runs/
+results/
+
 __pycache__/
 *.pyc
 *.pyo
-
-# Benchmark results
-tests/benchmark_*.json
