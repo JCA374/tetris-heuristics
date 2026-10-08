@@ -51,30 +51,45 @@ folders are git-ignored. Models worth keeping go in `models/`.
 ## Results
 
 All numbers are lines cleared on held-out test seeds (`experiments/compare.py`,
-paired, 50 games). The model JSON files in `models/` are the ones measured.
+paired, 50 games, 3M-piece cap unless noted). The model JSON files in `models/`
+are the ones measured. `*` = the 95% CI of the paired difference excludes 0.
 
-| model | features | mean lines | note |
-|---|---|---|---|
-| `baseline_single_v1` | 3 effective (old lines bug) | ~1,850 | the old GA reported 5,968: winner's curse |
-| `single_v2` | 4 (lines fixed) | 2,527 | |
-| `regime_v2` | 4, 3 regimes | 2,687 | +160 vs single_v2, **not significant** |
-| `single_v3_gen11` | 6 (+wells, hole_depth) | 58,173 (150k cap, 44/50 capped) | median 184k, mean 322k at a 3M cap |
-| `regime_v3` | 6, 3 regimes | 40,415 (150k cap) | undertrained; −17,758 vs single_v3 (significant) |
+| model | features | mean lines | median | vs single_v4 (paired) |
+|---|---|---:|---:|---|
+| `single_v4` | 5 (no lines) | **413,254** | 272,173 | reference (4/50 games capped) |
+| `single_v3_gen11` | 6 (lines ≈ 0) | 430,538 | 333,190 | +17k (−140k..+169k), same model in practice |
+| `regime_v4` | 5, 3 regimes | 247,897 | 180,388 | **−165k (−275k..−58k) \*** |
+| `regime_v2` | 4, 3 regimes | 2,687 | 1,560 | (vs single_v2: +160, not significant) |
+| `single_v2` | 4 (lines fixed) | 2,527 | 1,432 | |
+| `baseline_single_v1` | 3 effective (old lines bug) | 1,785 | 1,467 | the old GA reported 5,968: winner's curse |
 
-Findings so far:
+**Answer to the research question (so far): no.** A regime-switching policy
+did not beat a single weight set. With 4 features it was +6% (not
+significant); with 5 features it is significantly *worse* (−40%).
+- `regime_v4` hardly switches: normal 98%, repair (holes ≥ 7) 2%, danger
+  (height ≥ 15) 0%. Its *normal* weights drifted away from the good single
+  model (height 0, hole_depth −0.9), and that is where it lost.
+- It started from the single model copied into every regime, so it could have
+  stayed equal. With 20 genes, 4 games per evaluation and lines per game
+  spread almost as wide as the mean, selection followed noise: train 308k →
+  validation 276k → test 248k.
+- `single_v4` ≈ `single_v3_gen11` (practically identical weights): 40 more
+  generations did not improve the single model either. The 5-feature linear
+  model looks converged.
+
+Other findings:
 - **Features matter far more than regimes.** Adding `wells` and `hole_depth`
   (found by analysing 500 recorded baseline deaths, see docs/HEURISTICS.md)
-  gave ~20× more lines. Regime switching has not shown a significant gain yet.
+  gave ~200× more lines (1.8k → 413k).
 - **`lines` ablation:** with 4 features, removing `lines` cost −784 lines
   (significant). With 6 features, a no-lines copy of regime_v3 scored +3,085
   (not significant) and single_v3 had evolved `lines` ≈ 0, so v4 drops it.
 - **Board height** (single_v3, median lines): 10 rows → 530, 12 → 2,620,
-  14 → 8,572, 16 → 11,994. v4 uses the standard 20 rows.
+  14 → 8,572, 16 → 11,994.
 
-**In progress (v4):** `single_v4` and `regime_v4`, features
-height/holes/bumpiness/wells/hole_depth, 40 generations × 30 × 4 games with a
-1M-piece cap, started from `single_v3_gen11`. A 50-game comparison of all
-models at a 3M-piece cap follows (`runs/pipeline_v4.sh`).
+Ideas not tried yet: more games per evaluation (or a shorter board to make
+games shorter and fitness less noisy), regimes on a stat that actually varies
+in good play (e.g. `wells`, `bumpiness`), and 2-piece lookahead.
 
 ## Layout
 

@@ -1,0 +1,70 @@
+{
+  "type": "regime",
+  "rules": [
+    {
+      "name": "repair",
+      "stat": "holes",
+      "op": ">=",
+      "threshold": 7
+    },
+    {
+      "name": "danger",
+      "stat": "max_height",
+      "op": ">=",
+      "threshold": 15
+    },
+    {
+      "name": "normal"
+    }
+  ],
+  "weights": {
+    "repair": {
+      "height": -0.25285819514191377,
+      "lines": 0.0,
+      "holes": -10.0,
+      "bumpiness": -1.100886039997533,
+      "wells": -1.0950433224061211,
+      "hole_depth": 0.0
+    },
+    "danger": {
+      "height": -0.8598304341637037,
+      "lines": 0.0,
+      "holes": -8.32067208397494,
+      "bumpiness": -1.2223665486370092,
+      "wells": -1.7522872362542472,
+      "hole_depth": 0.0
+    },
+    "normal": {
+      "height": 0.0,
+      "lines": 0.0,
+      "holes": -8.646580220770211,
+      "bumpiness": -1.416142031655994,
+      "wells": -1.324071800112355,
+      "hole_depth": -0.8946661798687952
+    }
+  },
+  "meta": {
+    "validation_mean": 276354.13333333336,
+    "validation_games": 30,
+    "train_mean": 307677.5,
+    "train_games": 8,
+    "name": "regime_v4",
+    "trained": "2026-10-08T23:36:46",
+    "run_dir": "runs/20261008_213752_regime",
+    "generations": 40,
+    "population": 30,
+    "games_per_individual": 4,
+    "max_pieces": 1000000,
+    "lookahead": false,
+    "randomizer": "random",
+    "init_model": "single_v3_gen11",
+    "features": [
+      "height",
+      "holes",
+      "bumpiness",
+      "wells",
+      "hole_depth"
+    ],
+    "training_minutes": 118.9
+  }
+}
