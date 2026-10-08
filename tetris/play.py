@@ -11,6 +11,7 @@ they are finally tested on:
 
 from collections import deque
 
+from . import fastcore
 from .game import TetrisGame
 from .pieces import ALL_PIECES, make_generator
 
@@ -77,7 +78,7 @@ class PieceStream:
 
 
 def play_game(policy, seed=None, max_pieces=None, lookahead=False, randomizer='random',
-              on_move=None, recorder=None):
+              on_move=None, recorder=None, engine='auto', height=20):
     """
     Play one game to the end (or until max_pieces).
 
@@ -89,11 +90,22 @@ def play_game(policy, seed=None, max_pieces=None, lookahead=False, randomizer='r
         randomizer: 'random' (uniform, classic) or 'bag' (7-bag)
         on_move: optional callback(game, stream, policy) after each placement
         recorder: optional GameRecorder; its log is returned under 'record'
+        engine: 'auto' (C core when possible), 'c' or 'python'. The C core (tetris/fastcore.c)
+                plays move-for-move identically and is ~100x faster, but supports no
+                on_move/recorder callbacks.
+        height: board height (rows)
 
     Returns:
         dict with lines, pieces, score, capped, regime_counts (+ record)
     """
-    game = TetrisGame()
+    hooks = on_move is not None or recorder is not None
+    if engine == 'c' or (engine == 'auto' and not hooks and fastcore.available()):
+        if hooks:
+            raise ValueError("engine='c' does not support on_move/recorder")
+        return fastcore.play_game(policy, seed=seed, max_pieces=max_pieces, lookahead=lookahead,
+                                  randomizer=randomizer, height=height)
+
+    game = TetrisGame(height=height)
     stream = PieceStream(randomizer, seed)
     policy.reset_stats()
 

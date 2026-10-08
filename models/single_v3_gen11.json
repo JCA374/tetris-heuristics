@@ -1,0 +1,22 @@
+{
+  "type": "single",
+  "rules": [
+    {
+      "name": "default"
+    }
+  ],
+  "weights": {
+    "default": {
+      "height": -0.18112901686212657,
+      "lines": 0.0,
+      "holes": -7.737452136696084,
+      "bumpiness": -0.9709999129643041,
+      "wells": -0.9583903727048353,
+      "hole_depth": 0.0
+    }
+  },
+  "meta": {
+    "name": "single_v3_gen11",
+    "note": "Leader of the 6-feature single run, stopped at generation 11 (20k-piece training cap saturated). 50 held-out games @150k cap: 58,173 mean lines (44 capped)."
+  }
+}

@@ -7,6 +7,9 @@ weights depending on the board (e.g. "holes ≥ X → repair weights", "height �
 → danger weights"), beats a single set of weights.
 
 No dependencies are needed for the core, training or the terminal demo.
+Games run in a small C core (`tetris/fastcore.c`, compiled automatically with
+the system `cc` on first use, ~100× faster). It plays move-for-move like the
+Python engine, which remains the fallback when no compiler is available.
 `matplotlib` (training plot), `pygame` (graphical demo) and `pytest` are optional.
 
 ## Quick start
@@ -47,7 +50,31 @@ folders are git-ignored. Models worth keeping go in `models/`.
 
 ## Results
 
-_Pending: training of `single_v2` and `regime_v2` is in progress._
+All numbers are lines cleared on held-out test seeds (`experiments/compare.py`,
+paired, 50 games). The model JSON files in `models/` are the ones measured.
+
+| model | features | mean lines | note |
+|---|---|---|---|
+| `baseline_single_v1` | 3 effective (old lines bug) | ~1,850 | the old GA reported 5,968: winner's curse |
+| `single_v2` | 4 (lines fixed) | 2,527 | |
+| `regime_v2` | 4, 3 regimes | 2,687 | +160 vs single_v2, **not significant** |
+| `single_v3_gen11` | 6 (+wells, hole_depth) | 58,173 (150k cap, 44/50 capped) | median 184k, mean 322k at a 3M cap |
+| `regime_v3` | 6, 3 regimes | 40,415 (150k cap) | undertrained; −17,758 vs single_v3 (significant) |
+
+Findings so far:
+- **Features matter far more than regimes.** Adding `wells` and `hole_depth`
+  (found by analysing 500 recorded baseline deaths, see docs/HEURISTICS.md)
+  gave ~20× more lines. Regime switching has not shown a significant gain yet.
+- **`lines` ablation:** with 4 features, removing `lines` cost −784 lines
+  (significant). With 6 features, a no-lines copy of regime_v3 scored +3,085
+  (not significant) and single_v3 had evolved `lines` ≈ 0, so v4 drops it.
+- **Board height** (single_v3, median lines): 10 rows → 530, 12 → 2,620,
+  14 → 8,572, 16 → 11,994. v4 uses the standard 20 rows.
+
+**In progress (v4):** `single_v4` and `regime_v4`, features
+height/holes/bumpiness/wells/hole_depth, 40 generations × 30 × 4 games with a
+1M-piece cap, started from `single_v3_gen11`. A 50-game comparison of all
+models at a 3M-piece cap follows (`runs/pipeline_v4.sh`).
 
 ## Layout
 
@@ -58,6 +85,7 @@ tetris/            engine and AI
   features.py      height, lines, holes, bumpiness, wells, hole_depth (+ regime stats)
   policy.py        Policy: ordered regime rules -> weight sets; JSON load/save
   play.py          play_game(policy, seed, ...), GameRecorder, seed ranges
+  fastcore.c/.py   C port of the hot path (drop, features, regimes, move search) + ctypes bridge
 training/          ga.py (generic named-gene GA), train.py (CLI), watch.py (live plot)
 experiments/       compare.py (paired benchmark), record_games.py + analyze_games.py
 models/            saved models (JSON)

@@ -1,0 +1,33 @@
+{
+  "type": "single",
+  "rules": [
+    {
+      "name": "default"
+    }
+  ],
+  "weights": {
+    "default": {
+      "height": -0.07912571944130528,
+      "lines": 1.721574235147669,
+      "holes": -8.043806366682702,
+      "bumpiness": -1.9879866876014998
+    }
+  },
+  "meta": {
+    "validation_mean": 2656.3333333333335,
+    "validation_games": 30,
+    "train_mean": 2746,
+    "train_games": 10,
+    "name": "single_v2",
+    "trained": "2026-10-08T17:12:12",
+    "run_dir": "runs/20261008_140426_single",
+    "generations": 50,
+    "population": 50,
+    "games_per_individual": 5,
+    "max_pieces": 20000,
+    "lookahead": false,
+    "randomizer": "random",
+    "init_model": "baseline_single_v1",
+    "training_minutes": 187.8
+  }
+}

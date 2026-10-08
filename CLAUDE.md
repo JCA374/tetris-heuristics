@@ -38,6 +38,13 @@ python experiments/analyze_games.py runs/games/X.jsonl.gz            # feature r
   `Policy.single(w)` is a one-rule policy. `TEMPLATES` defines the trainable rule sets.
 - `tetris/play.py` `play_game(policy, seed, max_pieces, lookahead, randomizer, recorder)`.
   Seed ranges: test 0…, validation 1M…, train 2M…, analysis 3M…. Never mix them.
+- `tetris/fastcore.c` (+ `fastcore.py` ctypes bridge): C port of drop, line clear,
+  `board_stats`/`evaluate`, regime selection and move search. `play_game` uses it
+  automatically unless `on_move`/`recorder` hooks are given (`engine='python'` forces
+  Python). Pieces still come from the Python generators, so seeds match. It must stay
+  **bit-identical** to Python: same move order, strict `>` tie-break, same float
+  summation order, built with `-ffp-contract=off`; `tests/test_fastcore.py` checks it.
+  Built to `tetris/_build/` (git-ignored), keyed by source hash.
 - `training/ga.py`: genes `<regime>.<feature>` and `<regime>.threshold`. Uses
   common random numbers per generation, an archive of accumulated evaluations,
   and a final pick on validation seeds.
@@ -51,8 +58,13 @@ python experiments/analyze_games.py runs/games/X.jsonl.gz            # feature r
 - To compare models, always use `experiments/compare.py` (paired, held-out seeds,
   ≥ 50 games). Single games or 5-game means are far too noisy.
 - New features: add to `FEATURES`/`board_stats`/`evaluate` in `tetris/features.py`
-  and to `WEIGHT_BOUNDS` in `training/ga.py`. Check the definition against
+  and to `WEIGHT_BOUNDS` in `training/ga.py`, **and** to `fastcore.c` (`N_FEAT`,
+  `board_stats`, `evaluate`) and `fastcore.py` (the FEATURES assert); run
+  `tests/test_fastcore.py`. Check the definition against
   `experiments/analyze_games.py` if it came from there.
 - New board scenarios: add a template to `TEMPLATES` (plus threshold bounds in
-  `training/ga.py` for new stats). No code changes elsewhere.
+  `training/ga.py` for new stats). New stats must also go into `STATS` in
+  `fastcore.py` and `select_regime` in `fastcore.c`.
+- Strong models play hundreds of thousands of lines per game; always pass a
+  `--max-pieces` cap and watch for capped games (they hide differences).
 - `runs/`, `results/` and `logs/` are git-ignored. Keep models worth keeping in `models/`.

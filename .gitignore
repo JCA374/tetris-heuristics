@@ -6,3 +6,6 @@ results/
 __pycache__/
 *.pyc
 *.pyo
+
+# compiled C core
+tetris/_build/

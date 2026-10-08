@@ -60,7 +60,7 @@ purpose: if each candidate picked its own regime, scores from different weight
 sets would be compared against each other, which is meaningless.
 
 Stats a rule can test (`features.regime_stats`): `max_height`, `agg_height`,
-`holes`, `bumpiness`. Supported operators: `>=`, `>`, `<=`, `<`.
+`holes`, `bumpiness`, `wells`, `hole_depth`. Supported operators: `>=`, `>`, `<=`, `<`.
 
 A single-weight model is just a policy with one default rule. A regime model
 whose regimes all share one weight set plays move-for-move like that single
@@ -73,7 +73,9 @@ uses a new stat, add threshold bounds in `training/ga.py`. Then train with
 ## Training (`training/ga.py`)
 
 - **Genome:** named genes such as `normal.holes` (weights) and `repair.threshold`
-  (an integer switch point). The single model has 4 genes; the 3-regime model has 14.
+  (an integer switch point). The single model has one gene per feature (6, or fewer with `--features`);
+  the 3-regime model has 3× that plus 2 thresholds (20 with all 6 features).
+  Features left out are fixed at weight 0.
 - **Operators:** tournament selection (k=5), uniform crossover (70%), Gaussian
   mutation (20% per gene, σ = 10% of the gene's range, thresholds rounded),
   and 5 elites.
@@ -89,7 +91,18 @@ uses a new stat, add threshold bounds in `training/ga.py`. Then train with
   does and only diverges where switching helps.
 
 Seed ranges never overlap (`tetris/play.py`): test 0…, validation 1,000,000…,
-training 2,000,000….
+training 2,000,000…, analysis 3,000,000….
+
+## Speed: the C core
+
+With `wells` and `hole_depth` the models got good enough that games last
+hundreds of thousands of lines, and the Python engine (~1,500 pieces/s) became
+the bottleneck: v3 training saturated its 20k-piece cap. `tetris/fastcore.c`
+ports the hot path (column tops, drop, line clear, bit-parallel `board_stats`
+using popcount on row bitmasks, `evaluate`, regime selection, 1-ply lookahead,
+move search) and runs at ~140k pieces/s per core. It makes exactly the same
+decisions as Python (0 mismatches over 104k compared pieces; enforced by
+`tests/test_fastcore.py`), so results from both engines are interchangeable.
 
 ## Finding new features
 

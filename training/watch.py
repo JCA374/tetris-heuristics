@@ -3,8 +3,9 @@
 Live view of running (or finished) GA trainings.
 
 Reads runs/<run>/checkpoint.json, which train.py rewrites after every generation,
-and redraws a matplotlib window. Watches the newest run of each model type by
-default, so single and regime trainings appear side by side.
+and redraws a matplotlib window. By default it shows the newest run of each model
+type (re-checked on every refresh, so a run started later appears once its first
+generation is saved), so single and regime trainings appear side by side.
 
 Examples:
     python training/watch.py                       # newest run per model type
@@ -63,7 +64,7 @@ def print_table(runs):
                 print(f'    {k} = {g[k]}')
 
 
-def plot_loop(runs, interval):
+def plot_loop(find_runs, interval):
     import matplotlib.pyplot as plt
 
     plt.ion()
@@ -75,6 +76,7 @@ def plot_loop(runs, interval):
     ax_w = fig.add_subplot(grid[1, 1])
 
     while plt.fignum_exists(fig.number):
+        runs = find_runs()
         ax_fit.clear(); ax_thr.clear(); ax_w.clear()
         bars = []
         for run_dir in runs:
@@ -131,7 +133,9 @@ def plot_loop(runs, interval):
             ax_w.legend(fontsize=7)
         ax_w.grid(alpha=0.3, axis='y')
 
-        fig.suptitle(f'Updated {time.strftime("%H:%M:%S")}  -  refreshes every {interval}s  -  close window to exit')
+        names = '  |  '.join(os.path.basename(r) for r in runs)
+        fig.suptitle(f'{names}\nUpdated {time.strftime("%H:%M:%S")}  -  refreshes every {interval}s  -  close window to exit',
+                     fontsize=10)
         fig.tight_layout()
         plt.pause(interval)
 
@@ -143,19 +147,20 @@ def main():
     parser.add_argument('--text', action='store_true', help='print a table instead of plotting')
     args = parser.parse_args()
 
-    runs = args.runs or latest_runs()
-    if not runs:
+    # Without explicit runs, look again on every refresh so newly started runs appear
+    find_runs = (lambda: args.runs) if args.runs else latest_runs
+    if not find_runs():
         sys.exit('No runs found in runs/')
 
     if args.text:
         try:
             while True:
                 print(f'\033[H\033[J{time.strftime("%H:%M:%S")}')
-                print_table(runs)
+                print_table(find_runs())
                 time.sleep(args.interval)
         except KeyboardInterrupt:
             return
-    plot_loop(runs, args.interval)
+    plot_loop(find_runs, args.interval)
 
 
 if __name__ == '__main__':
