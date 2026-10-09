@@ -26,7 +26,9 @@ import time
 
 from tetris import TetrisGame, Policy, fastcore
 from tetris.features import board_stats
-from tetris.pieces import make_generator
+import random
+
+from tetris.pieces import ALL_PIECES
 from demo import default_model
 
 # Initialize Pygame
@@ -73,30 +75,43 @@ WINDOW_HEIGHT = 840
 FPS = 60
 
 # Moves per second; the last level ('max') plays as many moves as fit in each frame
-SPEEDS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 'max']
+SPEEDS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 'max']
 PYTHON_MAX_SPEED = 100   # above this the C core plays (if it is available)
-FRAME_BUDGET_MS = 14     # time per frame spent on AI moves at high speed
+FRAME_BUDGET_MS = 14     # time per frame spent on AI moves at 60 fps
+TURBO_FROM = 20000       # from this speed on, draw 20 fps and give the C core 45 ms per frame
+TURBO_FPS, TURBO_BUDGET_MS = 20, 45
+CHUNK = 4096             # pieces per C call (the frame deadline is checked between calls)
 
 
 class PieceQueue:
-    """Upcoming pieces; current = items[0], next = items[1]. Shared by the Python and C engines."""
+    """
+    Upcoming pieces as indices into ALL_PIECES (a bytearray, so the C core can take
+    them without conversion); current = items[0], next = items[1]. Shared by both engines.
+    """
 
     def __init__(self, randomizer='random'):
-        self.generator = make_generator(randomizer, None)
-        self.items = []
+        self.rng = random.Random()
+        self.bag = randomizer == 'bag'
+        self.items = bytearray()
         self.ensure(2)
 
     def ensure(self, n):
         while len(self.items) < n:
-            self.items.append(self.generator.get_next_piece())
+            if self.bag:                        # 7-bag: every piece once per 7, shuffled
+                for _ in range(max(1, (n - len(self.items)) // 7 + 1)):
+                    bag = list(range(len(ALL_PIECES)))
+                    self.rng.shuffle(bag)
+                    self.items.extend(bag)
+            else:
+                self.items.extend(self.rng.choices(range(len(ALL_PIECES)), k=max(n - len(self.items), 256)))
 
     @property
     def current(self):
-        return self.items[0]
+        return ALL_PIECES[self.items[0]]
 
     @property
     def next(self):
-        return self.items[1]
+        return ALL_PIECES[self.items[1]]
 
     def advance(self, n=1):
         del self.items[:n]
@@ -369,6 +384,13 @@ class TetrisGameGUI:
         self.move_credit = 0.0
         self.notify(text, (0, 255, 100))
 
+    def turbo(self):
+        v = SPEEDS[self.speed_index]
+        return bool(self.lib) and (v == 'max' or v >= TURBO_FROM)
+
+    def frame_budget_ms(self):
+        return TURBO_BUDGET_MS if self.turbo() else FRAME_BUDGET_MS
+
     def speed_label(self):
         v = SPEEDS[self.speed_index]
         engine = 'C' if self.lib and (v == 'max' or v > PYTHON_MAX_SPEED) else 'Python'
@@ -400,7 +422,7 @@ class TetrisGameGUI:
                 self.check_crisis()
                 if self.speed_index != before:
                     break
-                if pygame.time.get_ticks() - start > FRAME_BUDGET_MS:
+                if pygame.time.get_ticks() - start > self.frame_budget_ms():
                     break
         if v != 'max':
             self.move_credit = max(0.0, self.move_credit - made)
@@ -416,12 +438,12 @@ class TetrisGameGUI:
         # Stop the C core the moment holes reach slow_at (unless already past it: the user chose to go fast)
         stop = self.slow_at if self.auto_slow and self.slowed_from is None and self.holes() < self.slow_at else 0
         outcome = ctypes.c_int(0)
-        deadline = time.perf_counter() + FRAME_BUDGET_MS / 1000
+        deadline = time.perf_counter() + self.frame_budget_ms() / 1000
         made = 0
         while made < owed and not g.game_over and time.perf_counter() < deadline:
-            n = int(min(owed - made, 500))
+            n = int(min(owed - made, CHUNK))
             self.stream.ensure(n + 1)          # play() places at most len-1 pieces (the last is the preview)
-            seq = (ctypes.c_int8 * (n + 1))(*(fastcore.PIECE_INDEX[p.name] for p in self.stream.items[:n + 1]))
+            seq = (ctypes.c_int8 * (n + 1)).from_buffer_copy(self.stream.items, 0)
             before = g.pieces
             self.lib.play_until(ctypes.byref(g), ctypes.byref(self.cpolicy), seq, n + 1, int(self.use_lookahead),
                                 before + n, self.counts, stop, -1, ctypes.byref(outcome))
@@ -541,7 +563,7 @@ class TetrisGameGUI:
             self.draw()
 
             # Control frame rate
-            self.clock.tick(FPS)
+            self.clock.tick(TURBO_FPS if self.turbo() else FPS)
 
         pygame.quit()
 
