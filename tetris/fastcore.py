@@ -127,6 +127,54 @@ def to_cpolicy(policy):
     return cp
 
 
+class Runner:
+    """
+    A C game that can be advanced in steps, for recording long games.
+
+    `advance(n)` plays until n pieces are placed (or game over). `history` holds
+    the index (into ALL_PIECES) of every piece drawn so far, so the piece
+    sequence from any point on is known. `rows()`/`state()` expose the board.
+    """
+
+    def __init__(self, policy, seed=None, lookahead=False, randomizer='random', width=10, height=20):
+        self.lib = _load()
+        if self.lib is None:
+            raise RuntimeError(f'fastcore unavailable: {_error}')
+        self.game = CGame(width=width, height=height)
+        self.cpol = to_cpolicy(policy)
+        self.counts = (ctypes.c_int64 * MAX_RULES)()
+        self.lookahead = lookahead
+        self.generator = make_generator(randomizer, seed)
+        self.history = bytearray()      # every piece drawn, in order
+
+    def _draw_until(self, n):
+        while len(self.history) < n:
+            self.history.extend(PIECE_INDEX[self.generator.get_next_piece().name] for _ in range(CHUNK))
+
+    def advance(self, n):
+        """Play until `n` pieces are placed or the game is over. Returns game_over."""
+        g = self.game
+        while not g.game_over and g.pieces < n:
+            start = g.pieces
+            self._draw_until(n + 1)
+            # play() places at most len-1 pieces of the slice (the last one is the preview)
+            chunk = self.history[start:n + 1]
+            seq = (ctypes.c_int8 * len(chunk)).from_buffer_copy(chunk)
+            self.lib.play(ctypes.byref(g), ctypes.byref(self.cpol), seq, len(chunk), int(self.lookahead),
+                          n, self.counts)
+        return bool(g.game_over)
+
+    def state(self):
+        g = self.game
+        return {'pieces': g.pieces, 'lines': g.lines, 'score': g.score, 'game_over': bool(g.game_over),
+                'rows': list(g.rows[:g.height])}
+
+    def board(self, fill='X'):
+        """Board as row strings ('.' empty, `fill` filled; C boards don't know piece letters)."""
+        g = self.game
+        return [''.join(fill if (r >> c) & 1 else '.' for c in range(g.width)) for r in g.rows[:g.height]]
+
+
 def play_game(policy, seed=None, max_pieces=None, lookahead=False, randomizer='random', width=10, height=20):
     """Same contract as tetris.play.play_game (without on_move/recorder)."""
     lib = _load()

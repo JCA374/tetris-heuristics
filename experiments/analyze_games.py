@@ -52,11 +52,14 @@ plt.rcParams.update({
     'axes.spines.right': False, 'lines.linewidth': 2, 'font.family': 'DejaVu Sans',
 })
 
-# Features the current models use (lines is per-move, not a board property)
-CURRENT = ['agg_height', 'holes', 'bumpiness']
-CANDIDATES = ['max_height', 'height_spread', 'rows_with_holes', 'hole_depth', 'max_col_holes',
-              'row_transitions', 'col_transitions', 'cum_wells', 'max_well', 'deep_wells',
-              'near_full_rows', 'surface_rough2']
+# Model feature -> board feature computed here (lines is per-move, not a board property)
+MODEL_FEATURE = {'height': 'agg_height', 'holes': 'holes', 'bumpiness': 'bumpiness',
+                 'wells': 'cum_wells', 'hole_depth': 'hole_depth'}
+ALL_FEATURES = ['agg_height', 'holes', 'bumpiness', 'max_height', 'height_spread', 'rows_with_holes',
+                'hole_depth', 'max_col_holes', 'row_transitions', 'col_transitions', 'cum_wells',
+                'max_well', 'deep_wells', 'near_full_rows', 'surface_rough2', 'piece_fit', 'sz_fit']
+# Set in main() from the model's weights: features it uses vs. candidates
+CURRENT, CANDIDATES = [], []
 LABELS = {
     'agg_height': 'aggregate height', 'holes': 'holes', 'bumpiness': 'bumpiness',
     'max_height': 'max height', 'height_spread': 'max - min height',
@@ -65,7 +68,45 @@ LABELS = {
     'col_transitions': 'column transitions', 'cum_wells': 'cumulative wells',
     'max_well': 'deepest well', 'deep_wells': 'wells deeper than 2',
     'near_full_rows': 'rows with 8-9 cells', 'surface_rough2': 'sum of squared height steps',
+    'piece_fit': 'piece types that fit without a hole', 'sz_fit': 'S/Z that fit without a hole',
 }
+
+
+def _bottom_profiles():
+    """Per piece: list of bottom profiles, one per rotation. Profile[dc] = how far column dc's
+    lowest cell sits above the piece's lowest cell; the piece lands flush (no new hole) at
+    column c iff h[c + dc] - profile[dc] is the same for every dc."""
+    from tetris.pieces import ALL_PIECES
+    out = {}
+    for piece in ALL_PIECES:
+        profiles = []
+        for coords in piece.rotations:
+            width = max(c for _, c in coords) + 1
+            low = [max(r for r, c in coords if c == dc) for dc in range(width)]
+            profiles.append([max(low) - l for l in low])
+        out[piece.name] = profiles
+    return out
+
+
+BOTTOM_PROFILES = _bottom_profiles()
+
+
+def piece_fits(h):
+    """(N, C) heights -> {piece: (N,) bool}: some rotation/column lands without creating a hole."""
+    N, C = h.shape
+    fits = {}
+    for name, profiles in BOTTOM_PROFILES.items():
+        ok = np.zeros(N, dtype=bool)
+        for prof in profiles:
+            w = len(prof)
+            for c in range(C - w + 1):
+                base = h[:, c] - prof[0]
+                same = np.ones(N, dtype=bool)
+                for dc in range(1, w):
+                    same &= (h[:, c + dc] - prof[dc]) == base
+                ok |= same
+        fits[name] = ok
+    return fits
 
 
 # --- loading ------------------------------------------------------------------------
@@ -124,6 +165,9 @@ def features(F):
 
     fill = F.sum(2)
     out['near_full_rows'] = ((fill >= 8) & (fill <= 9)).sum(1)
+    fits = piece_fits(h)
+    out['piece_fit'] = sum(fits.values()).astype(int)
+    out['sz_fit'] = fits['S'].astype(int) + fits['Z'].astype(int)
     return {k: v.astype(float) for k, v in out.items()}
 
 
@@ -161,15 +205,17 @@ def corr(a, b):
 
 # --- drawing ------------------------------------------------------------------------
 
-BOARD_CMAP = ListedColormap([SURFACE] + [PIECE_COLOR[p] for p in PIECE_ORDER])
+UNKNOWN_CELL = '#b4b2ac'   # 'X': cells from the C core, which doesn't track piece letters
+BOARD_CMAP = ListedColormap([SURFACE] + [PIECE_COLOR[p] for p in PIECE_ORDER] + [UNKNOWN_CELL])
 
 
 def board_codes(board):
-    return np.array([[0 if c == '.' else PIECE_ORDER.index(c) + 1 for c in row] for row in board])
+    return np.array([[0 if c == '.' else PIECE_ORDER.index(c) + 1 if c in PIECE_ORDER else 8 for c in row]
+                     for row in board])
 
 
 def draw_board(ax, board, title=None):
-    ax.imshow(board_codes(board), cmap=BOARD_CMAP, vmin=0, vmax=7, interpolation='nearest')
+    ax.imshow(board_codes(board), cmap=BOARD_CMAP, vmin=0, vmax=8, interpolation='nearest')
     ax.set_xticks(np.arange(-0.5, 10, 1), minor=True)
     ax.set_yticks(np.arange(-0.5, 20, 1), minor=True)
     ax.grid(which='minor', color='#ffffff', linewidth=0.6)
@@ -197,9 +243,15 @@ def main():
     parser.add_argument('--out-dir', help='default: results/game_analysis/<model>')
     parser.add_argument('--warning', type=int, default=250,
                         help='"dies soon" = within this many pieces (for AUC)')
+    parser.add_argument('--normal-gap', type=int, default=1000,
+                        help='snapshots at least this many pieces before death define "normal" levels')
     args = parser.parse_args()
 
     header, games = load(args.games)
+    policy = header['policy']
+    default_weights = policy['weights'][policy['rules'][-1]['name']]
+    CURRENT[:] = [MODEL_FEATURE[f] for f in MODEL_FEATURE if default_weights.get(f, 0)]
+    CANDIDATES[:] = [k for k in ALL_FEATURES if k not in CURRENT]
     model = header['model']
     out_dir = args.out_dir or os.path.join('results', 'game_analysis', model)
     os.makedirs(out_dir, exist_ok=True)
@@ -239,6 +291,12 @@ def main():
             snap_game.append(gi)
     snap = features(to_array(snap_rows))
     remaining = np.array(snap_remaining, dtype=float)
+    # "Normal" = boards well before death (recordings of long games add dense snapshots near the end)
+    normal = remaining >= args.normal_gap
+    if normal.sum() < 50:
+        normal = np.ones_like(normal)
+    snap_n = {k: v[normal] for k, v in snap.items()}
+    normal_rows = [b for b, ok in zip(snap_rows, normal) if ok]
     final = features(to_array([g['record']['final_board'] for g in dead]))
 
     keep_last = max(len(g['record']['recent']) for g in dead)
@@ -257,7 +315,7 @@ def main():
         hole = (np.arange(20)[None, :, None] > top[:, None, :]) & ~F
         return hole.mean(0), F.mean(0)
 
-    mid_hole, mid_fill = hole_map(snap_rows)
+    mid_hole, mid_fill = hole_map(normal_rows)
     end_hole, end_fill = hole_map([g['record']['final_board'] for g in dead])
     fig, axes = plt.subplots(1, 4, figsize=(11, 5.6))
     for ax, data, title in zip(axes, [mid_fill, end_fill, mid_hole, end_hole],
@@ -286,14 +344,14 @@ def main():
         color = SERIES[0] if k in CURRENT else SERIES[1]
         ax.fill_between(x, lo, hi, color=color, alpha=0.18, linewidth=0)
         ax.plot(x, med, color=color)
-        typical = np.median(snap[k])
+        typical = np.median(snap_n[k])
         ax.axhline(typical, color=INK_2, linestyle=(0, (3, 3)), linewidth=1)
         ax.set_title(LABELS[k] + (' (current)' if k in CURRENT else ''), fontsize=9)
     for ax in axes.flat[len(show):]:
         ax.axis('off')
     for ax in axes[-1]:
         ax.set_xlabel('pieces before game over')
-    fig.suptitle(f'The last {keep_last} pieces: median (line) and middle 50% (band). Dashed = typical mid-game level',
+    fig.suptitle(f'The last {keep_last} pieces: median (line) and middle 50% (band). Dashed = typical level far from death',
                  fontweight='bold')
     fig.tight_layout()
     figures.append(('Run-up to death', save(fig, out_dir, '3_trajectories.png'),
@@ -302,7 +360,7 @@ def main():
     # Early warning: at which point does each feature leave its normal range?
     departure = {}
     for k in show:
-        p90 = np.percentile(snap[k], 90)
+        p90 = np.percentile(snap_n[k], 90)
         med = np.nanmedian(traj[k], 0)
         above = np.where(med > p90)[0]
         departure[k] = int(x[above[0]]) if len(above) else None
@@ -312,9 +370,7 @@ def main():
     soon = remaining <= args.warning
     y = np.log1p(remaining)
     X_cur = np.column_stack([snap[k] for k in CURRENT])
-    weights = header['policy']['weights'][header['policy']['rules'][-1]['name']]
-    model_eval = -(weights['height'] * snap['agg_height'] + weights['holes'] * snap['holes']
-                   + weights['bumpiness'] * snap['bumpiness'])
+    model_eval = -sum(default_weights.get(f, 0) * snap[k] for f, k in MODEL_FEATURE.items())
     res_y = residualize(y, X_cur)
     stats = {}
     for k in show:
@@ -345,7 +401,7 @@ def main():
     vals = [-stats[k]['partial_corr'] for k in cand]   # sign: positive = higher value -> sooner death
     ax2.barh([LABELS[k] for k in cand], vals, color=SERIES[1], height=0.6)
     ax2.axvline(0, color=INK_2, linewidth=0.8)
-    ax2.set_xlabel('partial correlation with "dies sooner", after removing what\nheight + holes + bumpiness already explain')
+    ax2.set_xlabel('partial correlation with "dies sooner", after removing what\n' + ' + '.join(LABELS[k] for k in CURRENT) + ' already explain')
     ax2.set_title('New information beyond current features')
     ax2.grid(axis='y', visible=False)
     for i, v in enumerate(vals):
@@ -401,8 +457,8 @@ def main():
                     'Right: how often each piece type adds a hole without clearing a line, in the run-up to death.'))
 
     # 6. Onset: the last healthy board before the spiral --------------------------------
-    healthy_holes = np.percentile(snap['holes'], 75)
-    healthy_height = np.percentile(snap['agg_height'], 75)
+    healthy_holes = np.percentile(snap_n['holes'], 75)
+    healthy_height = np.percentile(snap_n['agg_height'], 75)
     onsets = []            # (game index, index in recent of last healthy board)
     onset_distance = []
     for gi, g in enumerate(dead):
@@ -460,7 +516,7 @@ def main():
     fig.tight_layout()
     figures.append(('How the spiral starts', save(fig, out_dir, '6_onset.png'),
                     f'"Healthy" = holes <= {healthy_holes:.0f} and aggregate height <= {healthy_height:.0f} '
-                    '(75th percentile of mid-game boards). Each column follows one game from its last healthy board.'))
+                    '(75th percentile of boards far from death). Each column follows one game from its last healthy board.'))
     summary['onset'] = {
         'healthy_holes_max': float(healthy_holes), 'healthy_height_max': float(healthy_height),
         'games_with_onset': len(onsets), 'games_without_healthy_board': never,
@@ -468,11 +524,54 @@ def main():
         'piece_share': dict(zip(PIECE_ORDER, share)), 'onset_move_made_hole': float(np.mean(onset_hole)),
     }
 
+    # 7. Regime use (regime models only) ----------------------------------------------------
+    rules = policy['rules']
+    if len(rules) > 1:
+        names = [r['name'] for r in rules]
+        desc = {r['name']: (f"{r['name']} ({r['stat']} {r['op']} {r['threshold']})" if 'stat' in r
+                            else f"{r['name']} (otherwise)") for r in rules}
+        reg_share = np.full((len(names), len(dead), keep_last), np.nan)
+        for gi, g in enumerate(dead):
+            rec = g['record']['recent']
+            offset = keep_last - len(rec)
+            for ni, name in enumerate(names):
+                reg_share[ni, gi, offset:] = [r['regime'] == name for r in rec]
+        totals = {n: sum(g['regime_counts'].get(n, 0) for g in games) for n in names}
+        all_moves = max(sum(totals.values()), 1)
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 4.2), gridspec_kw={'width_ratios': [1, 2]})
+        whole = [totals[n] / all_moves for n in names]
+        last = [np.nanmean(reg_share[ni]) for ni in range(len(names))]
+        xs = np.arange(len(names))
+        ax1.bar(xs - 0.18, whole, width=0.34, color=SERIES[0], label='whole games')
+        ax1.bar(xs + 0.18, last, width=0.34, color=SERIES[1], label=f'last {keep_last} pieces')
+        for xi, (a, b) in enumerate(zip(whole, last)):
+            ax1.text(xi - 0.18, a, f'{a:.0%}', ha='center', va='bottom', fontsize=8, color=INK_2)
+            ax1.text(xi + 0.18, b, f'{b:.0%}', ha='center', va='bottom', fontsize=8, color=INK_2)
+        ax1.set_xticks(xs)
+        ax1.set_xticklabels(names)
+        ax1.set_ylabel('share of moves')
+        ax1.set_title('How often each regime is active')
+        ax1.legend(frameon=False)
+        ax1.grid(axis='x', visible=False)
+        for ni, name in enumerate(names):
+            ax2.plot(x, np.nanmean(reg_share[ni], 0), color=SERIES[ni], label=desc[name])
+        ax2.set_ylim(0, 1)
+        ax2.set_xlabel('pieces before game over')
+        ax2.set_ylabel('share of games in this regime')
+        ax2.set_title('Regime in the run-up to death')
+        ax2.legend(frameon=False, loc='center left')
+        fig.tight_layout()
+        figures.append(('Regime use', save(fig, out_dir, '7_regimes.png'),
+                        'Left: share of moves made in each regime, over whole games and in the run-up to death. '
+                        'Right: which regime is active at each step before game over.'))
+        summary['regime_share_whole'] = dict(zip(names, map(float, whole)))
+        summary['regime_share_last'] = dict(zip(names, map(float, last)))
+
     summary['killer_share'] = dict(zip(PIECE_ORDER, counts))
     summary['i_drought_mean'] = float(i_drought.mean())
     summary['hole_rate_by_piece'] = dict(zip(PIECE_ORDER, rates))
     summary['final_board_medians'] = {k: float(np.median(final[k])) for k in show}
-    summary['midgame_medians'] = {k: float(np.median(snap[k])) for k in show}
+    summary['midgame_medians'] = {k: float(np.median(snap_n[k])) for k in show}
 
     with open(os.path.join(out_dir, 'summary.json'), 'w') as f:
         json.dump(summary, f, indent=1)
@@ -500,7 +599,7 @@ section{{margin:28px 0}}</style></head><body>
 {len(remaining)} mid-game snapshots; "dies soon" = within {args.warning} pieces.</p>
 <table><tr><th>feature</th><th>median mid-game</th><th>median at death</th><th>AUC (warning)</th>
 <th>added info (partial corr.)</th><th>leaves normal range at</th></tr>{rows}</table>
-<p class="sub">AUC of the model's own board score: {model_auc:.2f}. "Leaves normal range" = the piece (before death) where the median first exceeds the 90th percentile of mid-game boards.</p>
+<p class="sub">AUC of the model's own board score: {model_auc:.2f}. "Leaves normal range" = the piece (before death) where the median first exceeds the 90th percentile of boards far from death. "Mid-game" = snapshots at least {args.normal_gap} pieces before death; current features: {', '.join(LABELS[k] for k in CURRENT)}.</p>
 {sections}</body></html>"""
     with open(os.path.join(out_dir, 'report.html'), 'w') as f:
         f.write(html)

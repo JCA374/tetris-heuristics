@@ -37,6 +37,11 @@ TEMPLATES = {
         {'name': 'danger', 'stat': 'max_height', 'op': '>='},
         {'name': 'normal'},
     ],
+    # 2 regimes: switch to repair weights as soon as holes appear (threshold evolved)
+    'repair': [
+        {'name': 'repair', 'stat': 'holes', 'op': '>='},
+        {'name': 'normal'},
+    ],
 }
 
 

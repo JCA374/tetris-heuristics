@@ -39,6 +39,9 @@ def main():
     parser.add_argument('--workers', '-w', type=int, default=os.cpu_count() or 1)
     parser.add_argument('--init', default='models/baseline_single_v1.json',
                         help="model to seed half the population with ('none' for pure random)")
+    parser.add_argument('--freeze', default='',
+                        help='comma-separated regimes whose weights stay at the --init model values '
+                             '(e.g. --model repair --freeze normal)')
     parser.add_argument('--validation-games', type=int, default=30)
     parser.add_argument('--seed', type=int, default=0, help='GA random seed')
     parser.add_argument('--out', help='where to save the final model (always also in runs/)')
@@ -63,6 +66,7 @@ def main():
         workers=args.workers, init_policy=init_policy, rng_seed=args.seed,
         validation_games=args.validation_games,
         features=features,
+        freeze=[r for r in args.freeze.split(',') if r],
     )
 
     if args.bench:

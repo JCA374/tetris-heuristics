@@ -24,11 +24,16 @@ import multiprocessing as mp
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tetris.policy import Policy
-from tetris.play import play_game, GameRecorder, ANALYSIS_SEED_BASE
+from tetris import fastcore
+from tetris.play import play_game, record_game, GameRecorder, ANALYSIS_SEED_BASE
 
 
 def _play(args):
-    model_dict, seed, max_pieces, lookahead, randomizer, keep_last, snapshot_every = args
+    model_dict, seed, max_pieces, lookahead, randomizer, keep_last, snapshot_every, tail_span = args
+    if fastcore.available():   # C core + Python replay of the end: fast for very long games
+        return record_game(Policy.from_dict(model_dict), seed=seed, max_pieces=max_pieces,
+                           lookahead=lookahead, randomizer=randomizer, keep_last=keep_last,
+                           snapshot_every=snapshot_every, tail_span=tail_span)
     return play_game(Policy.from_dict(model_dict), seed=seed, max_pieces=max_pieces,
                      lookahead=lookahead, randomizer=randomizer,
                      recorder=GameRecorder(keep_last, snapshot_every))
@@ -39,8 +44,10 @@ def main():
     parser.add_argument('model', help='model JSON')
     parser.add_argument('--games', type=int, default=500)
     parser.add_argument('--keep-last', type=int, default=300, help='boards kept before the end of each game')
-    parser.add_argument('--snapshot-every', type=int, default=100, help='mid-game snapshot interval (pieces)')
-    parser.add_argument('--max-pieces', type=int, default=100000)
+    parser.add_argument('--snapshot-every', type=int, default=10_000, help='mid-game snapshot interval (pieces)')
+    parser.add_argument('--tail-span', type=int, default=2_500,
+                        help='extra snapshots every 100 pieces over this many pieces before the end (C core only)')
+    parser.add_argument('--max-pieces', type=int, default=3_000_000)
     parser.add_argument('--lookahead', action='store_true')
     parser.add_argument('--randomizer', choices=['random', 'bag'], default='random')
     parser.add_argument('--workers', '-w', type=int, default=os.cpu_count() or 1)
@@ -54,7 +61,7 @@ def main():
 
     seeds = [ANALYSIS_SEED_BASE + i for i in range(args.games)]
     tasks = [(policy.to_dict(), s, args.max_pieces, args.lookahead, args.randomizer,
-              args.keep_last, args.snapshot_every) for s in seeds]
+              args.keep_last, args.snapshot_every, args.tail_span) for s in seeds]
     header = {'model': name, 'path': args.model, 'policy': policy.to_dict(),
               'settings': {k: v for k, v in vars(args).items() if k not in ('model', 'out')}}
 

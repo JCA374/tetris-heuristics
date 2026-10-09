@@ -127,3 +127,16 @@ def test_unused_feature_genes_are_fixed_at_zero():
     policy = genome_to_policy(TEMPLATES['single'], {k: -1.0 for k in spec})
     assert policy.weights['default'] == {'height': -1.0, 'lines': 0.0, 'holes': -1.0, 'bumpiness': 0.0,
                                          'wells': 0.0, 'hole_depth': 0.0}
+
+
+def test_frozen_regime_never_changes():
+    from training.ga import GeneticAlgorithm
+    ga = GeneticAlgorithm('repair', population_size=12, init_policy=Policy.single(W), rng_seed=1,
+                          freeze=['normal'])
+    population = ga.initial_population()
+    for _ in range(5):
+        population = ga.next_generation(population, [ga.rng.random() for _ in population])
+    for genome in population:
+        for f in ('height', 'lines', 'holes', 'bumpiness'):
+            assert genome[f'normal.{f}'] == W[f]
+    assert len({g['repair.holes'] for g in population}) > 1   # repair still evolves

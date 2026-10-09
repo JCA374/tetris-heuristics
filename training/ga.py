@@ -129,7 +129,8 @@ class GeneticAlgorithm:
     def __init__(self, template_name='single', population_size=50, games=5,
                  max_pieces=20000, lookahead=False, randomizer='random', workers=1,
                  init_policy=None, rng_seed=None, validation_games=30, candidates=5,
-                 features=FEATURES):
+                 features=FEATURES, freeze=()):
+        """freeze: regime names whose weights stay fixed at the init model's values."""
         self.template_name = template_name
         self.template = TEMPLATES[template_name]
         self.features = tuple(features)
@@ -144,6 +145,15 @@ class GeneticAlgorithm:
         self.validation_games = validation_games
         self.candidates = candidates
         self.rng = random.Random(rng_seed)
+        self.frozen = {}              # gene -> fixed value
+        if freeze:
+            if init_policy is None:
+                raise ValueError('freezing regimes needs an init model')
+            unknown = set(freeze) - {r['name'] for r in self.template}
+            if unknown:
+                raise ValueError(f"no such regime in '{template_name}': {', '.join(sorted(unknown))}")
+            seed = genome_from_policy(self.template, self.spec, init_policy, random.Random(0))
+            self.frozen = {k: v for k, v in seed.items() if k.split('.')[0] in freeze}
 
         self.mutation_rate = 0.2      # per-gene chance to mutate
         self.mutation_scale = 0.1     # sigma as fraction of the gene's range
@@ -162,6 +172,7 @@ class GeneticAlgorithm:
         genome = {}
         for name, (low, high, is_int) in self.spec.items():
             genome[name] = self.rng.randint(low, high) if is_int else self.rng.uniform(low, high)
+        genome.update(self.frozen)
         return genome
 
     def initial_population(self):
@@ -180,7 +191,7 @@ class GeneticAlgorithm:
         rate = self.mutation_rate if rate is None else rate
         child = dict(genome)
         for name, bounds in self.spec.items():
-            if self.rng.random() < rate:
+            if name not in self.frozen and self.rng.random() < rate:
                 low, high, _ = bounds
                 child[name] = clamp(bounds, child[name] + self.rng.gauss(0, self.mutation_scale * (high - low)))
         return child
@@ -238,7 +249,7 @@ class GeneticAlgorithm:
         os.makedirs(self.run_dir, exist_ok=True)
         if verbose:
             print(f"GA: model={self.template_name} features={','.join(self.features)} "
-                  f"genes={len(self.spec)} pop={self.population_size} "
+                  f"genes={len(self.spec) - len(self.frozen)} pop={self.population_size} "
                   f"games={self.games} cap={self.max_pieces} lookahead={self.lookahead} "
                   f"randomizer={self.randomizer} workers={self.workers}")
             print(f"Run directory: {self.run_dir}")
@@ -354,6 +365,7 @@ class GeneticAlgorithm:
         data = {
             'template': self.template_name,
             'features': list(self.features),
+            'frozen': sorted(self.frozen),
             'parameters': {
                 'population_size': self.population_size, 'games': self.games,
                 'max_pieces': self.max_pieces, 'lookahead': self.lookahead,

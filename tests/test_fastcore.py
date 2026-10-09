@@ -42,3 +42,22 @@ def test_c_handles_chunk_boundaries_and_caps():
     a = play_game(p, seed=9, max_pieces=cap, engine='c')
     b = play_game(p, seed=9, max_pieces=cap, engine='python')
     assert a == b and a['pieces'] == cap
+
+
+def test_record_game_matches_python_recorder():
+    """The hybrid recorder (C core + Python replay of the end) logs the same game as pure Python."""
+    from tetris.play import GameRecorder, record_game
+    letters = str.maketrans('IOTSZJL', 'XXXXXXX')
+    for policy in (Policy.single(FOUR), regime()):
+        a = play_game(policy, seed=5, max_pieces=5000, recorder=GameRecorder(50, 100), engine='python')
+        b = record_game(policy, seed=5, max_pieces=5000, keep_last=50, snapshot_every=100)
+        assert (a['lines'], a['pieces'], a['capped']) == (b['lines'], b['pieces'], b['capped'])
+        ra, rb = a['record'], b['record']
+        assert [s['n'] for s in ra['snapshots']] == [s['n'] for s in rb['snapshots']]
+        if not a['capped']:
+            assert ra['killer_piece'] == rb['killer_piece']
+            assert ra['pieces_since_seen'] == rb['pieces_since_seen']
+            assert [(r['n'], r['piece'], r['rotation'], r['col'], r['regime'], r['cleared'],
+                     [row.translate(letters) for row in r['board']]) for r in ra['recent']] == \
+                   [(r['n'], r['piece'], r['rotation'], r['col'], r['regime'], r['cleared'],
+                     [row.translate(letters) for row in r['board']]) for r in rb['recent']]
