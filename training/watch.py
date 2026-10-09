@@ -3,13 +3,13 @@
 Live view of running (or finished) GA trainings.
 
 Reads runs/<run>/checkpoint.json, which train.py rewrites after every generation,
-and redraws a matplotlib window. By default it shows the newest run of each model
-type (re-checked on every refresh, so a run started later appears once its first
-generation is saved). Panels: fitness, the leader's weights per generation, and
-the leader's weights now.
+and redraws a matplotlib window. By default it shows the newest run (re-checked on
+every refresh, so a run started later takes over once its first generation is
+saved); --all-types shows the newest run of every model type side by side.
+Panels: fitness, the leader's weights per generation, and the leader's weights now.
 
 Examples:
-    python training/watch.py                       # newest run per model type
+    python training/watch.py                       # the newest run (follows new runs)
     python training/watch.py runs/20261009_201504_single_split
     python training/watch.py --text                # terminal table instead of a window
 """
@@ -31,6 +31,11 @@ PALETTE = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4
 PLOTTED = [f for f in FEATURES if f != 'lines']        # lines is fixed at 0 in current models
 FEATURE_COLORS = dict(zip(PLOTTED, PALETTE))
 INK, MUTED, GRID = '#0b0b0b', '#52514e', '#e4e3df'
+
+
+def newest_run():
+    paths = sorted(glob.glob('runs/*/checkpoint.json'))     # run dirs start with a timestamp
+    return [os.path.dirname(paths[-1])] if paths else []
 
 
 def latest_runs():
@@ -201,13 +206,14 @@ def plot_loop(find_runs, interval):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('runs', nargs='*', help='run directories (default: newest per model type)')
+    parser.add_argument('runs', nargs='*', help='run directories (default: the newest run)')
+    parser.add_argument('--all-types', action='store_true', help='newest run of every model type side by side')
     parser.add_argument('--interval', type=int, default=300, help='refresh seconds')
     parser.add_argument('--text', action='store_true', help='print a table instead of plotting')
     args = parser.parse_args()
 
     # Without explicit runs, look again on every refresh so newly started runs appear
-    find_runs = (lambda: args.runs) if args.runs else latest_runs
+    find_runs = (lambda: args.runs) if args.runs else latest_runs if args.all_types else newest_run
     if not find_runs():
         sys.exit('No runs found in runs/')
 

@@ -14,6 +14,7 @@ Examples:
 import argparse
 import json
 import os
+import signal
 import random
 import statistics
 import sys
@@ -127,22 +128,32 @@ def main():
     start = last_report = time.time()
     done = 0
     with mp.Pool(args.workers) as pool:
-        for m, result in pool.imap_unordered(_play, tasks):
-            results[m][result['seed']] = result
-            done += 1
-            now = time.time()
-            if args.report_every and now - last_report >= args.report_every:
-                last_report = now
-                print('\r' + running_report(names, results, seeds, ref_index, done, len(tasks), now - start),
-                      flush=True)
-            print(f"\r  {done}/{len(tasks)} games  ({now - start:.0f}s)", end='', flush=True)
+        # Ctrl-C / SIGTERM stops early and reports the seeds every model has finished (set after the
+        # workers are forked, so only this process converts SIGTERM)
+        signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+        try:
+            for m, result in pool.imap_unordered(_play, tasks):
+                results[m][result['seed']] = result
+                done += 1
+                now = time.time()
+                if args.report_every and now - last_report >= args.report_every:
+                    last_report = now
+                    print('\r' + running_report(names, results, seeds, ref_index, done, len(tasks), now - start),
+                          flush=True)
+                print(f"\r  {done}/{len(tasks)} games  ({now - start:.0f}s)", end='', flush=True)
+        except KeyboardInterrupt:
+            pool.terminate()
+            seeds = [s for s in seeds if all(s in r for r in results)]
+            print(f"\nStopped early: reporting the {len(seeds)} seeds finished by every model")
+            if not seeds:
+                sys.exit(1)
     print()
 
     lines = [[results[m][s]['lines'] for s in seeds] for m in range(len(policies))]
 
     report = {
         'date': datetime.now().isoformat(timespec='seconds'),
-        'settings': {'games': args.games, 'seeds': [seeds[0], seeds[-1]], 'max_pieces': args.max_pieces,
+        'settings': {'games': len(seeds), 'seeds': [seeds[0], seeds[-1]], 'max_pieces': args.max_pieces,
                      'lookahead': args.lookahead, 'randomizer': args.randomizer},
         'reference': names[ref_index],
         'models': {},
