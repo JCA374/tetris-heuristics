@@ -33,6 +33,8 @@ class TetrisGame:
         self.lines_cleared = 0
         self.pieces_placed = 0
         self.game_over = False
+        self.last_landing = 0.0   # move features of the last placement (features.py)
+        self.last_eroded = 0
 
     def copy(self):
         """Create an independent copy of the game state."""
@@ -44,6 +46,8 @@ class TetrisGame:
         new_game.lines_cleared = self.lines_cleared
         new_game.pieces_placed = self.pieces_placed
         new_game.game_over = self.game_over
+        new_game.last_landing = self.last_landing
+        new_game.last_eroded = self.last_eroded
         return new_game
 
     def column_tops(self):
@@ -125,8 +129,21 @@ class TetrisGame:
             return False
 
         board = self.board
-        for row, col in piece.get_rotation(rotation):
+        cells = piece.get_rotation(rotation)
+        for row, col in cells:
             board[row + row_offset][col + col_offset] = piece.color
+
+        # Move features: landing height = floor-based row of the piece's bottom plus half its
+        # height; eroded cells = rows this move completes x the piece's own cells in them.
+        top_r = min(r for r, _ in cells)
+        bottom_r = max(r for r, _ in cells)
+        self.last_landing = (self.height - 1 - (row_offset + bottom_r)) + (bottom_r - top_r) / 2
+        full = [r for r in range(row_offset + top_r, row_offset + bottom_r + 1) if all(board[r])]
+        if full:
+            own = sum(1 for r, _ in cells if r + row_offset in full)
+            self.last_eroded = len(full) * own
+        else:
+            self.last_eroded = 0
 
         self.pieces_placed += 1
 

@@ -17,7 +17,8 @@
 #include <math.h>
 
 #define MAX_H 32
-#define N_FEAT 6          /* height, lines, holes, bumpiness, wells, hole_depth */
+#define N_FEAT 9          /* height, lines, holes, bumpiness, wells, hole_depth,
+                             landing_height, eroded_cells, sz_fit */
 #define MAX_RULES 8
 #define N_PIECES 7
 #define MAX_ROT 4
@@ -27,6 +28,8 @@ typedef struct {
     int32_t game_over, pad;
     int64_t lines, pieces, score;
     uint32_t rows[MAX_H];
+    int32_t last_landing2;     /* 2 x landing height of the last placement (exact in halves) */
+    int32_t last_eroded;       /* eroded cells of the last placement */
 } Game;
 
 typedef struct {
@@ -41,6 +44,7 @@ static int32_t n_rot[N_PIECES];
 static int32_t cells[N_PIECES][MAX_ROT][4][2];   /* (row, col) per cell */
 static int32_t p_width[N_PIECES][MAX_ROT];        /* columns spanned */
 static int32_t p_low[N_PIECES][MAX_ROT][4];       /* lowest row per spanned column */
+static int32_t p_minr[N_PIECES][MAX_ROT], p_maxr[N_PIECES][MAX_ROT];   /* top/bottom cell row */
 
 void set_pieces(const int32_t *rotations, const int32_t *data)
 {
@@ -60,6 +64,12 @@ void set_pieces(const int32_t *rotations, const int32_t *data)
                 if (rr > p_low[p][r][cc]) p_low[p][r][cc] = rr;
             }
             p_width[p][r] = w;
+            p_minr[p][r] = 4;
+            p_maxr[p][r] = -1;
+            for (int i = 0; i < 4; i++) {
+                if (cells[p][r][i][0] < p_minr[p][r]) p_minr[p][r] = cells[p][r][i][0];
+                if (cells[p][r][i][0] > p_maxr[p][r]) p_maxr[p][r] = cells[p][r][i][0];
+            }
         }
     }
 }
@@ -133,8 +143,21 @@ static int place_at(Game *g, int p, int rot, int col, int row)
         g->rows[cells[p][rot][i][0] + row] |= 1u << (cells[p][rot][i][1] + col);
     g->pieces++;
 
-    /* clear full rows: keep the others in order, add empty rows at the top */
+    /* move features (same definitions as TetrisGame.place_piece) */
     uint32_t full = (1u << g->width) - 1u;
+    int top_r = p_minr[p][rot], bottom_r = p_maxr[p][rot];
+    g->last_landing2 = 2 * (g->height - 1 - (row + bottom_r)) + (bottom_r - top_r);
+    int full_rows = 0, own = 0;
+    for (int r = row + top_r; r <= row + bottom_r; r++)
+        if (g->rows[r] == full)
+            full_rows++;
+    if (full_rows)
+        for (int i = 0; i < 4; i++)
+            if (g->rows[cells[p][rot][i][0] + row] == full)
+                own++;
+    g->last_eroded = full_rows * own;
+
+    /* clear full rows: keep the others in order, add empty rows at the top */
     int dst = g->height - 1, cleared = 0;
     for (int src = g->height - 1; src >= 0; src--) {
         if (g->rows[src] == full)
@@ -155,7 +178,7 @@ static int place(Game *g, int p, int rot, int col)
 }
 
 typedef struct {
-    int64_t agg_height, holes, bumpiness, wells, hole_depth, max_height;
+    int64_t agg_height, holes, bumpiness, wells, hole_depth, max_height, sz_fit;
 } Stats;
 
 static void board_stats(const Game *g, Stats *s)
@@ -209,6 +232,16 @@ static void board_stats(const Game *g, Stats *s)
     s->wells = wells;
     s->hole_depth = hole_depth;
     s->max_height = maxh;
+    /* S/Z with a hole-free placement (same rule as features.sz_fit) */
+    int sf = 0, zf = 0, n = g->width;
+    for (int c = 0; c + 1 < n && !(sf && zf); c++) {
+        int a = h[c], b = h[c + 1];
+        if (!sf && (a == b + 1 || (c + 2 < n && a == b && h[c + 2] == a + 1)))
+            sf = 1;
+        if (!zf && (b == a + 1 || (c + 2 < n && b == h[c + 2] && a == b + 1)))
+            zf = 1;
+    }
+    s->sz_fit = sf + zf;
 }
 
 /* Same summation order as tetris/features.evaluate */
@@ -223,6 +256,12 @@ static double evaluate(const Game *g, int64_t lines, const double *w)
                  + w[5] * (double)s.hole_depth;
     if (w[4] != 0.0)
         score += w[4] * (double)s.wells;
+    if (w[6] != 0.0)
+        score += w[6] * ((double)g->last_landing2 * 0.5);
+    if (w[7] != 0.0)
+        score += w[7] * (double)g->last_eroded;
+    if (w[8] != 0.0)
+        score += w[8] * (double)s.sz_fit;
     return score;
 }
 

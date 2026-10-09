@@ -25,13 +25,14 @@ SOURCE = os.path.join(HERE, 'fastcore.c')
 BUILD_DIR = os.path.join(HERE, '_build')
 CFLAGS = ['-O3', '-ffp-contract=off', '-shared', '-fPIC']
 
-MAX_H, MAX_RULES, MAX_ROT, N_FEAT = 32, 8, 4, 6
+MAX_H, MAX_RULES, MAX_ROT, N_FEAT = 32, 8, 4, 9
 STATS = ['max_height', 'agg_height', 'holes', 'bumpiness', 'wells', 'hole_depth']
 OPS = {'>=': 0, '>': 1, '<=': 2, '<': 3}
 PIECE_INDEX = {p.name: i for i, p in enumerate(ALL_PIECES)}
 CHUNK = 8192
 
-assert FEATURES == ('height', 'lines', 'holes', 'bumpiness', 'wells', 'hole_depth'), \
+assert FEATURES == ('height', 'lines', 'holes', 'bumpiness', 'wells', 'hole_depth',
+                    'landing_height', 'eroded_cells', 'sz_fit'), \
     'fastcore.c hard-codes this feature order'
 
 
@@ -39,7 +40,8 @@ class CGame(ctypes.Structure):
     _fields_ = [('width', ctypes.c_int32), ('height', ctypes.c_int32),
                 ('game_over', ctypes.c_int32), ('pad', ctypes.c_int32),
                 ('lines', ctypes.c_int64), ('pieces', ctypes.c_int64), ('score', ctypes.c_int64),
-                ('rows', ctypes.c_uint32 * MAX_H)]
+                ('rows', ctypes.c_uint32 * MAX_H),
+                ('last_landing2', ctypes.c_int32), ('last_eroded', ctypes.c_int32)]
 
 
 class CPolicy(ctypes.Structure):

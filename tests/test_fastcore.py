@@ -10,6 +10,7 @@ pytestmark = pytest.mark.skipif(not fastcore.available(), reason='no C compiler'
 
 SIX = {'height': -0.18, 'lines': 0.0, 'holes': -7.7, 'bumpiness': -0.97, 'wells': -0.96, 'hole_depth': -0.1}
 FOUR = {'height': -0.39, 'lines': 1.09, 'holes': -7.8, 'bumpiness': -2.0}
+NINE = dict(SIX, landing_height=-0.6, eroded_cells=0.4, sz_fit=0.8)
 
 
 def regime(t_holes=5, t_height=12):
@@ -21,8 +22,9 @@ def regime(t_holes=5, t_height=12):
     )
 
 
-@pytest.mark.parametrize('policy', [Policy.single(FOUR), Policy.single(SIX), regime(), regime(2, 6)],
-                         ids=['single4', 'single6', 'regime', 'regime_low_thresholds'])
+@pytest.mark.parametrize('policy', [Policy.single(FOUR), Policy.single(SIX), Policy.single(NINE), regime(),
+                                    regime(2, 6)],
+                         ids=['single4', 'single6', 'single9', 'regime', 'regime_low_thresholds'])
 @pytest.mark.parametrize('seed,randomizer,lookahead,height,cap', [
     (1, 'random', False, 20, 2000),
     (2, 'bag', False, 20, 2000),

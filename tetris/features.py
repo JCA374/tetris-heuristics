@@ -20,11 +20,21 @@ experiments/analyze_games.py), the two strongest signals beyond the four above:
 - hole_depth: for every hole, the number of filled cells above it in its column.
               A hole under one cell is easy to uncover, one under six is permanent.
 
-Models without weights for a feature use 0 (see Policy), so older 4-feature
-models behave exactly as before.
+Three features added in Oct 2026, after the single_v4 failure analysis showed the
+board features were used up and most holes come from S/Z pieces:
+- landing_height: how high the last piece landed (floor row of its bottom + half its
+                  height; Dellacherie). Move feature, set by TetrisGame.place_piece.
+- eroded_cells:   rows completed by the last move x the piece's own cells in those
+                  rows (Dellacherie). Rewards clears that use the piece itself.
+- sz_fit:         how many of S and Z could land on the surface without creating a
+                  hole (0-2). Surfaces with room for S/Z avoid forced S/Z holes.
+
+Models without weights for a feature use 0 (see Policy), so older models behave
+exactly as before (zero-weight terms are skipped, so scores are bit-identical).
 """
 
-FEATURES = ('height', 'lines', 'holes', 'bumpiness', 'wells', 'hole_depth')
+FEATURES = ('height', 'lines', 'holes', 'bumpiness', 'wells', 'hole_depth',
+            'landing_height', 'eroded_cells', 'sz_fit')
 
 
 def board_stats(game):
@@ -81,6 +91,21 @@ def wells(heights):
     return total
 
 
+def sz_fit(heights):
+    """Number of S/Z pieces (0-2) with at least one hole-free placement on this surface."""
+    s = z = 0
+    n = len(heights)
+    for c in range(n - 1):
+        a, b = heights[c], heights[c + 1]
+        if not s and (a == b + 1 or (c + 2 < n and a == b and heights[c + 2] == a + 1)):
+            s = 1
+        if not z and (b == a + 1 or (c + 2 < n and b == heights[c + 2] and a == b + 1)):
+            z = 1
+        if s and z:
+            break
+    return s + z
+
+
 def compute_features(game, lines=0):
     """All features as a dict."""
     heights, holes, hole_depth = board_stats(game)
@@ -91,6 +116,9 @@ def compute_features(game, lines=0):
         'bumpiness': bumpiness(heights),
         'wells': wells(heights),
         'hole_depth': hole_depth,
+        'landing_height': game.last_landing,
+        'eroded_cells': game.last_eroded,
+        'sz_fit': sz_fit(heights),
     }
 
 
@@ -106,6 +134,12 @@ def evaluate(game, lines, weights):
              + weights['hole_depth'] * hole_depth)
     if weights['wells']:
         score += weights['wells'] * wells(heights)
+    if weights['landing_height']:
+        score += weights['landing_height'] * game.last_landing
+    if weights['eroded_cells']:
+        score += weights['eroded_cells'] * game.last_eroded
+    if weights['sz_fit']:
+        score += weights['sz_fit'] * sz_fit(heights)
     return score
 
 

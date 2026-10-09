@@ -54,6 +54,9 @@ WEIGHT_BOUNDS = {
     'bumpiness': (-5.0, 0.0),
     'wells': (-5.0, 0.0),
     'hole_depth': (-5.0, 0.0),
+    'landing_height': (-5.0, 0.0),
+    'eroded_cells': (0.0, 5.0),
+    'sz_fit': (0.0, 5.0),
 }
 THRESHOLD_BOUNDS = {
     'holes': (1, 10),
