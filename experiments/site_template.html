@@ -85,6 +85,7 @@ details.data summary { cursor: pointer; }
 details.data table { border-collapse: collapse; margin-top: 6px; font-variant-numeric: tabular-nums; }
 details.data td, details.data th { padding: 2px 10px 2px 0; text-align: right; border-bottom: 1px solid var(--grid); }
 details.data td:first-child, details.data th:first-child { text-align: left; }
+.ladder { font-weight: 600; font-variant-numeric: tabular-nums; background: var(--surface-2); border-radius: 8px; padding: 10px 14px; overflow-x: auto; white-space: nowrap; }
 .callout { border-left: 3px solid var(--s1); background: var(--surface-2); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 18px 0; max-width: 760px; }
 .callout strong { color: var(--ink); }
 .controls { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
@@ -318,11 +319,32 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
   <div class="kicker">8 · Training method</div>
   <h2>Measuring the rare event through the common ones</h2>
   <div class="prose">
-    <p>A strong model dies about once per million pieces, so a full game is one expensive, noisy data point. But
-    deaths follow a ladder: the board gets a few holes every few hundred pieces, and only rarely climbs all the way
-    up. <strong>Multilevel splitting</strong> measures each rung separately from short episodes, starting at clean
-    boards and branching fresh continuations at 6, 10, 14 and 18 holes, and multiplies the chances. The crisis
-    boards come from the evaluated model's own play, so there is no fixed set of crisis boards to overfit.</p>
+    <p><strong>The problem.</strong> A strong model dies about once per million pieces. One full game costs ~10
+    CPU-seconds and says little, because piece luck swings the result as much as the mean itself. A GA that needs
+    many deaths per individual would take forever on full games.</p>
+    <p><strong>The idea: split the rare event into common steps.</strong> The bot never dies out of nowhere. It climbs
+    a ladder of trouble, and at every rung it either recovers to a clean board or climbs on:</p>
+    <p class="ladder">clean board → 6 holes → 10 holes → 14 holes → 18 holes → game over</p>
+    <p><strong>One estimate, step by step</strong> (illustrative numbers, roughly single_v4):</p>
+    <ol>
+      <li><strong>Time to first trouble.</strong> Start from clean boards taken from real games and play until the
+      board has 6 holes: on average ~3,000 pieces.</li>
+      <li><strong>Split at every rung.</strong> From each 6-hole board, play 8 continuations with different random
+      pieces and count how many reach 10 holes before recovering: say 10%. Repeat from the 10-hole boards to 14 (30%),
+      14 to 18 (40%) and 18 to game over (20%).</li>
+      <li><strong>Multiply.</strong> P(trouble ends in death) = 0.10 × 0.30 × 0.40 × 0.20 = 0.0024, so expected pieces
+      per death ≈ 3,000 ÷ 0.0024 ≈ <strong>1.25 million</strong>. Its logarithm is the training fitness; charts
+      convert it to estimated lines per game (≈ pieces ÷ 2.5).</li>
+    </ol>
+    <p><strong>Why it is better.</strong> One estimate takes ~4 CPU-seconds and carries as much information as ~8
+    full games (~70 CPU-seconds): about 17× more information per second. Compute goes to the dangerous moments, not
+    the millions of easy pieces in between. The trouble boards come from the evaluated model's own play, so there is
+    no fixed crisis dataset to memorise (training on recorded crisis boards did overfit: 76% recovery on its own
+    boards, 71% on new ones).</p>
+    <p><strong>Caveats.</strong> It is an estimate: for single_v4 it says ~1.45M pieces per death vs ~1.2M in real
+    games, a bit high but in the right order. Borderline wins can be false positives (an 18% splitting win below was
+    0% on 1,000 full games), and during training the GA keeps the individuals with lucky estimates, so training
+    curves run high. Splitting trains and screens; <strong>full games decide</strong>.</p>
   </div>
   <div class="grid2">
     <div class="figure">
