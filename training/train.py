@@ -42,9 +42,13 @@ def main():
     parser.add_argument('--freeze', default='',
                         help='comma-separated regimes whose weights stay at the --init model values '
                              '(e.g. --model repair --freeze normal)')
-    parser.add_argument('--crisis', help='train from crisis start states (experiments/make_crisis_states.py '
-                                         'output); fitness = recovery rate, --games = episodes, '
-                                         '--max-pieces = episode length')
+    parser.add_argument('--fitness', choices=['games', 'splitting'], default='games',
+                        help='games: lines per full game; splitting: estimated game length from '
+                             'multilevel splitting (tetris/splitting.py), --games = estimates per individual')
+    parser.add_argument('--starts', default='runs/starts/single_v4.json',
+                        help='clean start boards for --fitness splitting (experiments/make_start_states.py)')
+    parser.add_argument('--optimizer', choices=['ga', 'cem'], default='ga',
+                        help='genetic algorithm or cross-entropy method')
     parser.add_argument('--validation-games', type=int, default=30)
     parser.add_argument('--seed', type=int, default=0, help='GA random seed')
     parser.add_argument('--out', help='where to save the final model (always also in runs/)')
@@ -62,11 +66,11 @@ def main():
         parser.error(f"unknown features: {', '.join(sorted(unknown))}")
 
     init_policy = None if args.init == 'none' else Policy.load(args.init)
-    crisis = None
-    if args.crisis:
+    starts = None
+    if args.fitness == 'splitting':
         import json
-        with open(args.crisis) as f:
-            crisis = json.load(f)
+        with open(args.starts) as f:
+            starts = json.load(f)['boards']
 
     ga = GeneticAlgorithm(
         template_name=args.model, population_size=args.population, games=args.games,
@@ -75,7 +79,7 @@ def main():
         validation_games=args.validation_games,
         features=features,
         freeze=[r for r in args.freeze.split(',') if r],
-        crisis=crisis,
+        fitness=args.fitness, starts=starts, optimizer=args.optimizer,
     )
 
     if args.bench:

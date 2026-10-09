@@ -16,6 +16,7 @@ Examples:
 import argparse
 import glob
 import json
+import math
 import os
 import sys
 import time
@@ -33,9 +34,16 @@ def latest_runs():
     runs = {}
     for path in sorted(glob.glob('runs/*/checkpoint.json')):
         run_dir = os.path.dirname(path)
-        model = run_dir.rsplit('_', 1)[-1]
+        model = os.path.basename(run_dir).split('_', 2)[-1]   # e.g. single, single_cem_split
         runs[model] = run_dir  # sorted by timestamp, so the newest wins
     return list(runs.values())
+
+
+def to_lines(data):
+    """Fitness -> lines: splitting runs store ln(pieces per death)."""
+    if str(data.get('fitness', 'lines')).startswith('est.'):
+        return lambda v: None if v is None else math.exp(v) / 2.5
+    return lambda v: v
 
 
 def load(run_dir):
@@ -57,8 +65,9 @@ def print_table(runs):
             print(f'{run_dir}: waiting for first generation...')
             continue
         h = data['history'][-1]
-        lead = f"{h['leader_mean']:.0f} ({h['leader_games']} games)" if h['leader_mean'] else 'n/a'
-        print(f"{run_dir}  gen {h['generation']}: leader {lead}  best {h['best']:.0f}  mean {h['mean']:.0f}")
+        conv = to_lines(data)
+        lead = f"{conv(h['leader_mean']):.0f} ({h['leader_games']} games)" if h['leader_mean'] else 'n/a'
+        print(f"{run_dir}  gen {h['generation']}: leader {lead}  best {conv(h['best']):.0f}  mean {conv(h['mean']):.0f}")
         g = leader(h)
         for k in sorted(g):
             if k.endswith('.threshold'):
@@ -99,11 +108,12 @@ def plot_loop(find_runs, interval):
             color = COLORS.get(model)
             hist = data['history']
             gens = [h['generation'] for h in hist]
-            lm = [h['leader_mean'] for h in hist]
+            conv = to_lines(data)
+            lm = [conv(h['leader_mean']) for h in hist]
             ax_fit.plot(gens, lm, color=color, linewidth=2.5, label=f'{model}: leader (multi-game mean)')
-            ax_fit.plot(gens, [h['mean'] for h in hist], color=color, linestyle='--', alpha=0.6,
+            ax_fit.plot(gens, [conv(h['mean']) for h in hist], color=color, linestyle='--', alpha=0.6,
                         label=f'{model}: population mean')
-            ax_fit.scatter(gens, [h['best'] for h in hist], color=color, s=10, alpha=0.4)
+            ax_fit.scatter(gens, [conv(h['best']) for h in hist], color=color, s=10, alpha=0.4)
 
             thresholds = sorted(k for k in leader(hist[-1]) if k.endswith('.threshold'))
             for name, style in zip(thresholds, ('-', ':')):

@@ -1,5 +1,7 @@
 """
-Genetic algorithm over a named-gene genome.
+Weight search over a named-gene genome: a genetic algorithm (default) or the
+cross-entropy method (--optimizer cem), with full games or multilevel-splitting
+estimates (tetris/splitting.py) as fitness.
 
 A genome is a flat dict of genes derived from a policy rule template
 (tetris.policy.TEMPLATES):
@@ -17,9 +19,20 @@ Noise control (Tetris line counts vary ~10x between games of the same policy):
   lucky genome keeps being tested until its mean converges.
 - Final pick: top archive candidates are re-played on separate validation
   seeds and the best validation mean wins.
+
+Fitness:
+- 'games': lines per full game (mean over `games` games).
+- 'splitting': ln(estimated pieces per death) from tetris/splitting.estimate, starting
+  from recorded clean boards (`starts`); `games` = estimates per genome per generation.
+  About 17x more information per CPU-second than full games for strong policies.
+
+Cross-entropy method (Szita & Lorincz 2006, the standard for Tetris weights): sample
+the population from a Gaussian per gene, keep the best quarter, refit mean and
+spread, add decreasing extra noise so the search does not collapse early.
 """
 
 import json
+import math
 import os
 import random
 import statistics
@@ -29,9 +42,9 @@ from datetime import datetime
 
 from tetris.features import FEATURES
 from tetris.policy import Policy, TEMPLATES
-from tetris import fastcore
+from tetris import fastcore, splitting
 from tetris.play import (play_game, TRAIN_SEED_BASE, VALIDATION_SEED_BASE,
-                         CRISIS_TRAIN_SEED_BASE, CRISIS_VALIDATION_SEED_BASE)
+                         SPLIT_TRAIN_SEED_BASE, SPLIT_VALIDATION_SEED_BASE)
 
 # Weights are scale-invariant, so only the ratios matter; bounds are generous.
 WEIGHT_BOUNDS = {
@@ -117,15 +130,21 @@ def genome_key(genome):
 
 # --- worker -------------------------------------------------------------------
 
+_STARTS = None      # clean start boards for splitting estimates (set per worker process)
+
+
+def _init_worker(starts):
+    global _STARTS
+    _STARTS = starts
+
+
 def _play_task(args):
-    """One episode: a seed (full game, fitness = lines) or (seed, board) (crisis, fitness = recovered)."""
+    """One evaluation: a seed (full game, fitness = lines) or ('split', seed) (splitting estimate)."""
     index, template, genome, episode, max_pieces, lookahead, randomizer = args
     policy = genome_to_policy(template, genome)
     if isinstance(episode, tuple):
-        seed, rows = episode
-        result = fastcore.play_from(policy, rows, seed=seed, max_pieces=max_pieces,
-                                    lookahead=lookahead, randomizer=randomizer)
-        result['fitness'] = float(result['recovered'])
+        est = splitting.estimate(policy, _STARTS, seed=episode[1], lookahead=lookahead, randomizer=randomizer)
+        result = {'fitness': est['log_pieces'], 'lines': est['pieces_per_death'] / 2.5, 'pieces': est['pieces']}
     else:
         result = play_game(policy, seed=episode, max_pieces=max_pieces,
                            lookahead=lookahead, randomizer=randomizer)
@@ -139,13 +158,12 @@ class GeneticAlgorithm:
     def __init__(self, template_name='single', population_size=50, games=5,
                  max_pieces=20000, lookahead=False, randomizer='random', workers=1,
                  init_policy=None, rng_seed=None, validation_games=30, candidates=5,
-                 features=FEATURES, freeze=(), crisis=None):
+                 features=FEATURES, freeze=(), fitness='games', starts=None, optimizer='ga'):
         """
         freeze: regime names whose weights stay fixed at the init model's values.
-        crisis: start states from experiments/make_crisis_states.py ({'train': [...],
-            'validation': [...]}). Then every episode starts from a sampled state with fresh
-            pieces, `games` = episodes per genome per generation, `max_pieces` = episode
-            length, and fitness = share of episodes that recover (no holes, max height <= 8).
+        fitness: 'games' or 'splitting' (needs `starts`: clean boards as row bitmasks,
+            from experiments/make_start_states.py, and the C core).
+        optimizer: 'ga' or 'cem'.
         """
         self.template_name = template_name
         self.template = TEMPLATES[template_name]
@@ -161,9 +179,17 @@ class GeneticAlgorithm:
         self.validation_games = validation_games
         self.candidates = candidates
         self.rng = random.Random(rng_seed)
-        self.crisis = crisis
-        if crisis is not None and not fastcore.available():
-            raise RuntimeError('crisis training needs the C core: ' + str(fastcore.build_error()))
+        if fitness not in ('games', 'splitting') or optimizer not in ('ga', 'cem'):
+            raise ValueError(f'unknown fitness {fitness!r} or optimizer {optimizer!r}')
+        self.fitness = fitness
+        self.optimizer = optimizer
+        self.starts = starts
+        if fitness == 'splitting':
+            if not starts:
+                raise ValueError('splitting fitness needs start boards')
+            if not fastcore.available():
+                raise RuntimeError('splitting fitness needs the C core: ' + str(fastcore.build_error()))
+            _init_worker(starts)
         self.frozen = {}              # gene -> fixed value
         if freeze:
             if init_policy is None:
@@ -179,6 +205,12 @@ class GeneticAlgorithm:
         self.crossover_rate = 0.7
         self.elite_size = 5
         self.tournament_size = 5
+        # cross-entropy method
+        self.cem_elite_fraction = 0.25
+        self.cem_init_spread = 0.1    # initial sigma as fraction of the gene's range (around --init)
+        self.cem_extra_noise = 0.03   # added sigma (fraction of range), decays to 0 at 80% of the run
+        self.cem_mean = None
+        self.cem_sigma = None
 
         self.archive = {}             # genome_key -> {'genome', 'scores': [fitness per episode]}
         self.history = []
@@ -244,7 +276,7 @@ class GeneticAlgorithm:
         results = [[] for _ in genomes]
         if self.workers > 1:
             if self.pool is None:
-                self.pool = mp.Pool(self.workers)
+                self.pool = mp.Pool(self.workers, initializer=_init_worker, initargs=(self.starts,))
             iterator = self.pool.imap_unordered(_play_task, tasks,
                                                 chunksize=max(1, len(tasks) // (self.workers * 16)))
         else:
@@ -263,26 +295,73 @@ class GeneticAlgorithm:
         return sorted(entries, key=lambda e: statistics.mean(e['scores']), reverse=True)
 
     def fmt(self, value):
-        return f'{value:6.1%}' if self.crisis is not None else f'{value:7.0f}'
+        """Fitness for printing: lines (games) or estimated lines per game (splitting, geometric mean)."""
+        if self.fitness == 'splitting':
+            return f'{math.exp(value) / 2.5:9,.0f}'
+        return f'{value:9,.0f}'
+
+    def fitness_label(self):
+        return 'est. lines per game (splitting)' if self.fitness == 'splitting' else 'lines'
 
     def train_episodes(self, gen):
-        if self.crisis is None:
-            return [TRAIN_SEED_BASE + (gen - 1) * self.games + i for i in range(self.games)]
-        states = self.crisis['train']
-        rng = random.Random(gen)            # same states for every genome in a generation
-        return [(CRISIS_TRAIN_SEED_BASE + (gen - 1) * self.games + i, states[rng.randrange(len(states))]['rows'])
-                for i in range(self.games)]
+        if self.fitness == 'splitting':
+            return [('split', SPLIT_TRAIN_SEED_BASE + (gen - 1) * self.games + i) for i in range(self.games)]
+        return [TRAIN_SEED_BASE + (gen - 1) * self.games + i for i in range(self.games)]
 
     def validation_episodes(self):
-        if self.crisis is None:
-            return [VALIDATION_SEED_BASE + i for i in range(self.validation_games)]
-        return [(CRISIS_VALIDATION_SEED_BASE + i, s['rows']) for i, s in enumerate(self.crisis['validation'])]
+        if self.fitness == 'splitting':
+            return [('split', SPLIT_VALIDATION_SEED_BASE + i) for i in range(self.validation_games)]
+        return [VALIDATION_SEED_BASE + i for i in range(self.validation_games)]
+
+    # -- cross-entropy method -------------------------------------------------------
+
+    def free_genes(self):
+        return [k for k in self.spec if k not in self.frozen]
+
+    def cem_start(self):
+        self.cem_mean, self.cem_sigma = {}, {}
+        seed = (genome_from_policy(self.template, self.spec, self.init_policy, self.rng)
+                if self.init_policy is not None else None)
+        for k in self.free_genes():
+            low, high, _ = self.spec[k]
+            self.cem_mean[k] = seed[k] if seed else (low + high) / 2
+            self.cem_sigma[k] = (self.cem_init_spread if seed else 0.3) * (high - low)
+
+    def cem_sample(self):
+        """The current mean plus population_size - 1 Gaussian samples around it."""
+        population = []
+        for i in range(self.population_size):
+            genome = dict(self.frozen)
+            for k in self.free_genes():
+                v = self.cem_mean[k] if i == 0 else self.rng.gauss(self.cem_mean[k], self.cem_sigma[k])
+                genome[k] = clamp(self.spec[k], v)
+            population.append(genome)
+        return population
+
+    def cem_update(self, population, fitnesses, gen, generations):
+        n = max(2, round(self.cem_elite_fraction * len(population)))
+        elite = [population[i] for i in sorted(range(len(population)), key=lambda i: fitnesses[i], reverse=True)[:n]]
+        decay = max(0.0, 1 - gen / (0.8 * generations))
+        for k in self.free_genes():
+            low, high, _ = self.spec[k]
+            values = [g[k] for g in elite]
+            self.cem_mean[k] = statistics.mean(values)
+            self.cem_sigma[k] = statistics.pstdev(values) + self.cem_extra_noise * decay * (high - low)
 
     # -- main loop --------------------------------------------------------------
 
     def run(self, generations, out_path=None, verbose=True, plot=True):
-        self.run_dir = os.path.join('runs', f"{datetime.now():%Y%m%d_%H%M%S}_{self.template_name}")
-        os.makedirs(self.run_dir, exist_ok=True)
+        tag = self.template_name + ('' if self.optimizer == 'ga' else f'_{self.optimizer}') + \
+            ('_split' if self.fitness == 'splitting' else '')
+        base = os.path.join('runs', f"{datetime.now():%Y%m%d_%H%M%S}_{tag}")
+        self.run_dir, n = base, 1
+        while True:                 # unique even when several runs start in the same second
+            try:
+                os.makedirs(self.run_dir)
+                break
+            except FileExistsError:
+                n += 1
+                self.run_dir = f'{base}_{n}'
         if verbose:
             print(f"GA: model={self.template_name} features={','.join(self.features)} "
                   f"genes={len(self.spec) - len(self.frozen)} pop={self.population_size} "
@@ -290,7 +369,11 @@ class GeneticAlgorithm:
                   f"randomizer={self.randomizer} workers={self.workers}")
             print(f"Run directory: {self.run_dir}")
 
-        population = self.initial_population()
+        if self.optimizer == 'cem':
+            self.cem_start()
+            population = self.cem_sample()
+        else:
+            population = self.initial_population()
         start = time.time()
 
         try:
@@ -303,8 +386,12 @@ class GeneticAlgorithm:
                 selection = [self.record(genome, res) for genome, res in zip(population, results)]
 
                 best_i = max(range(len(population)), key=lambda i: fitnesses[i])
-                leaders = self.archive_best(min_games=2 * self.games)
-                leader = leaders[0] if leaders else None
+                if self.optimizer == 'cem':
+                    # every genome is new each generation; the CEM mean (individual 0) is the "leader"
+                    leader = self.archive[genome_key(population[0])]
+                else:
+                    leaders = self.archive_best(min_games=2 * self.games)
+                    leader = leaders[0] if leaders else None
                 entry = {
                     'generation': gen,
                     'best': fitnesses[best_i],
@@ -330,7 +417,11 @@ class GeneticAlgorithm:
                         print(f"          thresholds: {th}")
 
                 if gen < generations:
-                    population = self.next_generation(population, selection)
+                    if self.optimizer == 'cem':
+                        self.cem_update(population, fitnesses, gen, generations)
+                        population = self.cem_sample()
+                    else:
+                        population = self.next_generation(population, selection)
 
             policy = self.select_final(verbose)
         finally:
@@ -360,8 +451,7 @@ class GeneticAlgorithm:
             self.save_plot()
         if verbose:
             print(f"\nFinal model ({self.fmt(policy.meta['validation_mean']).strip()} "
-                  f"{'recovery rate' if self.crisis is not None else 'lines mean'} on "
-                  f"{policy.meta['validation_games']} validation episodes):")
+                  f"{self.fitness_label()} on {policy.meta['validation_games']} validation evaluations):")
             print(policy.describe())
             print(f"Saved: {out_path or os.path.join(self.run_dir, 'model.json')}")
         return policy
@@ -369,6 +459,10 @@ class GeneticAlgorithm:
     def select_final(self, verbose):
         """Re-play the top archive candidates on validation seeds and keep the best."""
         pool = self.archive_best(min_games=2 * self.games)[:self.candidates]
+        if self.optimizer == 'cem':
+            # the final mean is the CEM's answer; also try the best single samples
+            mean = dict(self.frozen, **{k: clamp(self.spec[k], v) for k, v in self.cem_mean.items()})
+            pool = [self.archive.get(genome_key(mean), {'genome': mean, 'scores': []})]
         if len(pool) < self.candidates:
             seen = {genome_key(e['genome']) for e in pool}
             for e in self.archive_best(min_games=1):
@@ -387,14 +481,16 @@ class GeneticAlgorithm:
         if verbose:
             for i, (e, s) in enumerate(zip(pool, scores)):
                 mark = '*' if i == best else ' '
-                print(f"  {mark} candidate {i + 1}: train {self.fmt(statistics.mean(e['scores']))} "
+                train = self.fmt(statistics.mean(e['scores'])) if e['scores'] else '      n/a'
+                print(f"  {mark} candidate {i + 1}: train {train} "
                       f"({len(e['scores'])} games)  validation {self.fmt(s)}")
         return genome_to_policy(self.template, genomes[best], meta={
             'validation_mean': scores[best],
             'validation_games': len(seeds),
-            'train_mean': statistics.mean(pool[best]['scores']),
+            'train_mean': statistics.mean(pool[best]['scores']) if pool[best]['scores'] else None,
             'train_games': len(pool[best]['scores']),
-            'fitness': 'crisis recovery rate' if self.crisis is not None else 'lines',
+            'fitness': self.fitness_label(),
+            'optimizer': self.optimizer,
         })
 
     # -- output -------------------------------------------------------------------
@@ -404,9 +500,9 @@ class GeneticAlgorithm:
             'template': self.template_name,
             'features': list(self.features),
             'frozen': sorted(self.frozen),
-            'fitness': 'crisis recovery rate' if self.crisis is not None else 'lines',
-            'crisis_states': ({k: len(self.crisis[k]) for k in ('train', 'validation')}
-                              if self.crisis is not None else None),
+            'fitness': self.fitness_label(),
+            'optimizer': self.optimizer,
+            'cem': ({'mean': self.cem_mean, 'sigma': self.cem_sigma} if self.optimizer == 'cem' else None),
             'parameters': {
                 'population_size': self.population_size, 'games': self.games,
                 'max_pieces': self.max_pieces, 'lookahead': self.lookahead,

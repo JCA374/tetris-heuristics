@@ -318,16 +318,19 @@ int64_t play(Game *g, const Policy *pol, const int8_t *seq, int64_t n, int looka
 }
 
 /*
- * Crisis episodes: like play(), but also stops as soon as the board has
- * recovered (no holes and max height <= recover_max_height). *recovered is set
- * to 1 in that case. Used to train repair behaviour from recorded bad states.
+ * Episodes with stopping rules (crisis training / evaluation). Like play(), but
+ * after every placement:
+ *   - stop_holes > 0 and holes >= stop_holes            -> *outcome = 2 (entered a crisis)
+ *   - recover_max_height >= 0, no holes, max height <=  -> *outcome = 1 (recovered)
+ * Game over -> 3; piece cap or end of sequence -> 0.
  */
-int64_t play_recover(Game *g, const Policy *pol, const int8_t *seq, int64_t n, int lookahead,
-                     int64_t max_pieces, int64_t *regime_counts, int recover_max_height, int *recovered)
+int64_t play_until(Game *g, const Policy *pol, const int8_t *seq, int64_t n, int lookahead,
+                   int64_t max_pieces, int64_t *regime_counts, int stop_holes, int recover_max_height,
+                   int *outcome)
 {
     int64_t i = 0;
     Stats s;
-    *recovered = 0;
+    *outcome = 0;
     while (!g->game_over && i + 1 < n) {
         if (max_pieces >= 0 && g->pieces >= max_pieces)
             break;
@@ -340,11 +343,19 @@ int64_t play_recover(Game *g, const Policy *pol, const int8_t *seq, int64_t n, i
         }
         place(g, seq[i], m / 64, m % 64);
         i++;
+        if (g->game_over)
+            break;
         board_stats(g, &s);
-        if (s.holes == 0 && s.max_height <= recover_max_height) {
-            *recovered = 1;
+        if (stop_holes > 0 && s.holes >= stop_holes) {
+            *outcome = 2;
+            break;
+        }
+        if (recover_max_height >= 0 && s.holes == 0 && s.max_height <= recover_max_height) {
+            *outcome = 1;
             break;
         }
     }
+    if (g->game_over)
+        *outcome = 3;
     return i;
 }

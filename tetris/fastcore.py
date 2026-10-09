@@ -84,8 +84,8 @@ def _load():
     lib.play.restype = ctypes.c_int64
     lib.play.argtypes = [ctypes.POINTER(CGame), ctypes.POINTER(CPolicy), ctypes.POINTER(ctypes.c_int8),
                          ctypes.c_int64, ctypes.c_int, ctypes.c_int64, ctypes.POINTER(ctypes.c_int64)]
-    lib.play_recover.restype = ctypes.c_int64
-    lib.play_recover.argtypes = lib.play.argtypes + [ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
+    lib.play_until.restype = ctypes.c_int64
+    lib.play_until.argtypes = lib.play.argtypes + [ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
     lib.best_move.restype = ctypes.c_int
     lib.best_move.argtypes = [ctypes.POINTER(CGame), ctypes.POINTER(CPolicy), ctypes.c_int, ctypes.c_int,
                               ctypes.POINTER(ctypes.c_int)]
@@ -136,14 +136,18 @@ def board_rows(board, width=10):
     return [int(r) for r in board]
 
 
-def play_from(policy, board, seed=None, max_pieces=1000, lookahead=False, randomizer='random',
-              recover_max_height=8, width=10):
-    """
-    Crisis episode: start from `board` (row strings or bitmasks, row 0 = top) with a fresh
-    piece sequence and play until the board has recovered (no holes, max height <=
-    recover_max_height), the game is over, or max_pieces pieces are placed.
+OUTCOMES = {0: 'cap', 1: 'recovered', 2: 'crisis', 3: 'game_over'}
 
-    Returns dict(recovered, pieces, lines, game_over, regime_counts).
+
+def play_from(policy, board, seed=None, max_pieces=1000, lookahead=False, randomizer='random',
+              recover_max_height=8, stop_holes=0, width=10):
+    """
+    Episode from a given board (row strings or bitmasks, row 0 = top) with a fresh piece
+    sequence. Stops at game over, after max_pieces, when the board has recovered (no holes,
+    max height <= recover_max_height; -1 disables) or when holes >= stop_holes (0 disables).
+
+    Returns dict(outcome, recovered, pieces, lines, game_over, regime_counts, rows); `rows`
+    is the final board (bitmasks), e.g. the crisis state reached.
     """
     lib = _load()
     if lib is None:
@@ -154,18 +158,28 @@ def play_from(policy, board, seed=None, max_pieces=1000, lookahead=False, random
         game.rows[r] = bits
     cpol = to_cpolicy(policy)
     counts = (ctypes.c_int64 * MAX_RULES)()
-    recovered = ctypes.c_int(0)
+    outcome = ctypes.c_int(0)
     generator = make_generator(randomizer, seed)
-    buffer = [PIECE_INDEX[generator.get_next_piece().name] for _ in range(max_pieces + 1)]
-    seq = (ctypes.c_int8 * len(buffer))(*buffer)
-    lib.play_recover(ctypes.byref(game), ctypes.byref(cpol), seq, len(buffer), int(lookahead),
-                     max_pieces, counts, recover_max_height, ctypes.byref(recovered))
+    draw = lambda k: [PIECE_INDEX[generator.get_next_piece().name] for _ in range(k)]
+    # Most episodes are short: start with a small buffer and grow it (drawing pieces in Python is the slow part)
+    size = 256
+    buffer = draw(min(max_pieces, size) + 1)
+    while True:
+        seq = (ctypes.c_int8 * len(buffer))(*buffer)
+        used = lib.play_until(ctypes.byref(game), ctypes.byref(cpol), seq, len(buffer), int(lookahead),
+                              max_pieces, counts, stop_holes, recover_max_height, ctypes.byref(outcome))
+        if outcome.value or game.pieces >= max_pieces:
+            break
+        size = min(size * 4, CHUNK)
+        buffer = buffer[used:] + draw(min(max_pieces - game.pieces, size))
     return {
-        'recovered': bool(recovered.value),
+        'outcome': OUTCOMES[outcome.value],
+        'recovered': outcome.value == 1,
         'pieces': game.pieces,
         'lines': game.lines,
         'game_over': bool(game.game_over),
         'regime_counts': {rule['name']: counts[i] for i, rule in enumerate(policy.rules) if counts[i]},
+        'rows': list(game.rows[:game.height]),
     }
 
 

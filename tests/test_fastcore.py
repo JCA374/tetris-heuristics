@@ -90,12 +90,37 @@ def test_play_from_recovers_and_matches_python():
     assert fastcore.play_from(policy, ['.' * 10] * 20, seed=1)['pieces'] == 1   # already healthy
 
 
-def test_crisis_ga_smoke():
+def test_play_from_stops_at_crisis():
+    r = fastcore.play_from(Policy.single(FOUR), ['.' * 10] * 20, seed=2, max_pieces=100_000,
+                           recover_max_height=-1, stop_holes=3)
+    assert r['outcome'] in ('crisis', 'game_over')
+    if r['outcome'] == 'crisis':
+        seen, holes = 0, 0
+        for row in r['rows']:
+            holes += bin(seen & ~row & 0x3ff).count('1')
+            seen |= row
+        assert holes >= 3
+
+
+def test_splitting_ranks_models_and_is_reproducible():
+    from tetris import splitting
+    starts = [fastcore.board_rows(['.' * 10] * 20)]
+    good = splitting.estimate(Policy.single(SIX), starts, seed=1, n_start=10, n_split=4, max_states=10)
+    again = splitting.estimate(Policy.single(SIX), starts, seed=1, n_start=10, n_split=4, max_states=10)
+    bad = splitting.estimate(Policy.single(dict(SIX, holes=-0.5)), starts, seed=1, n_start=10, n_split=4,
+                             max_states=10)
+    assert good == again
+    assert good['pieces_per_death'] > bad['pieces_per_death']
+
+
+@pytest.mark.parametrize('optimizer', ['ga', 'cem'])
+def test_splitting_training_smoke(optimizer, tmp_path, monkeypatch):
     from training.ga import GeneticAlgorithm
-    board = fastcore.board_rows(['.' * 10] * 14 + ['X.XXXXXXXX'] * 6)
-    crisis = {'train': [{'rows': board}] * 5, 'validation': [{'rows': board}] * 3}
-    ga = GeneticAlgorithm('repair', population_size=6, games=4, max_pieces=200, init_policy=Policy.single(SIX),
-                          rng_seed=0, freeze=['normal'], crisis=crisis, candidates=2)
-    results = ga.play_many(ga.initial_population(), ga.train_episodes(1))
-    assert all(r['fitness'] in (0.0, 1.0) for res in results for r in res)
-    assert len(ga.validation_episodes()) == 3
+    monkeypatch.chdir(tmp_path)
+    starts = [fastcore.board_rows(['.' * 10] * 20)]
+    ga = GeneticAlgorithm('single', population_size=6, games=1, init_policy=Policy.single(FOUR), rng_seed=0,
+                          features=('height', 'holes', 'bumpiness'), fitness='splitting', starts=starts,
+                          optimizer=optimizer, validation_games=1, candidates=2)
+    policy = ga.run(2, verbose=False, plot=False)
+    assert policy.meta['optimizer'] == optimizer
+    assert policy.weights['default']['lines'] == 0.0

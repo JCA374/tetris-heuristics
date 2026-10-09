@@ -1,73 +1,85 @@
-# Tetris AI: heuristics, regime switching and a genetic algorithm
+# Tetris AI: heuristics, data-driven features and noise-aware training
 
 A Tetris bot that scores every possible drop with a weighted sum of board
-features (height, lines, holes, bumpiness, wells, hole depth). The weights are evolved by a genetic algorithm. The current
-experiment asks whether a **regime-switching** model, which uses different
-weights depending on the board (e.g. "holes ≥ X → repair weights", "height ≥ Y
-→ danger weights"), beats a single set of weights.
+features (height, holes, bumpiness, wells, hole depth). The weights are tuned
+by a genetic algorithm or the cross-entropy method. The project has gone from
+1,785 to about 500,000 lines per game by recording how the bot dies,
+finding the features that predict it, and measuring every change on held-out
+games.
+
+**Current focus: one weight set (single model).** The regime-switching
+experiments (different weights per board situation) are finished; they never
+beat the single model (see Results). The code still loads and plays those
+models, but new work targets the single model.
+
+Project page with all charts: `docs/index.html` (GitHub Pages:
+https://jca374.github.io/tetris-heuristics/ once enabled).
 
 No dependencies are needed for the core, training or the terminal demo.
 Games run in a small C core (`tetris/fastcore.c`, compiled automatically with
 the system `cc` on first use, ~100× faster). It plays move-for-move like the
 Python engine, which remains the fallback when no compiler is available.
-`matplotlib` (training plot), `pygame` (graphical demo) and `pytest` are optional.
+`matplotlib` (training plot), `numpy` (analysis), `pygame` (graphical demo) and
+`pytest` are optional.
 
 ## Quick start
 
 ```bash
 python demo.py                                  # watch the best model in models/
-python demo.py --model models/regime_v2.json    # shows the active regime live
+python demo.py --model models/single_v4.json
 python demo.py --list                           # all models and their weights
-python demo_pygame.py --model models/single_v2.json
+python demo_pygame.py --model models/single_v4.json
 
-python -m pytest tests                          # test suite
+python -m pytest tests                          # test suite (~1 min)
 ```
 
-## Train and compare
+## Train
+
+Strong models die about once per million pieces, so a full game is one very
+noisy data point (per-game spread ≈ the mean). Training therefore uses
+**multilevel splitting** by default for strong models (`tetris/splitting.py`):
+
+1. Start from clean boards recorded from real play and run until the board
+   reaches 6 holes. That measures how often trouble starts.
+2. From those boards, run several continuations with fresh pieces. Count how
+   often each reaches 10 holes before recovering, then 14 from 10, then 18
+   from 14, then game over from 18.
+3. Expected pieces per death ≈ time to the first level ÷ the product of those
+   probabilities.
+
+Every step is a common event, so a few hundred short episodes estimate it. The
+crisis boards come from the evaluated model's own play, so there is no fixed
+crisis dataset to run out of or overfit. Measured on single_v4: one estimate
+(~4 CPU-seconds) is as informative as ~8 full games (~70 CPU-seconds), and it
+ranks models the same way full games do.
 
 ```bash
-# Same settings for both models, so they see the same training seeds
-python training/train.py --model single --workers 8 --out models/single_v2.json
-python training/train.py --model regime --workers 8 --out models/regime_v2.json
-python training/train.py --model regime --quick          # 10-second smoke test
-python training/watch.py                                 # live plot of running trainings (--text for terminal)
-python training/train.py --model single --features height,lines,holes,bumpiness   # original 4 features only
+# clean start boards from recorded games (once per source model)
+python experiments/record_games.py models/single_v4.json --games 500
+python experiments/make_start_states.py runs/games/single_v4.jsonl.gz      # -> runs/starts/single_v4.json
 
-# Paired benchmark on held-out seeds
-python experiments/compare.py models/baseline_single_v1.json models/single_v2.json models/regime_v2.json --games 50
+# train the single model; optimizer: ga (default) or cem (cross-entropy method)
+python training/train.py --model single --features height,holes,bumpiness,wells,hole_depth \
+    --init models/single_v4.json --fitness splitting --optimizer cem --workers 8 --out models/X.json
+python training/train.py --model single --fitness games --games 8      # full games as fitness
+python training/train.py --model single --quick                        # smoke test
+python training/watch.py                    # live plot (5-min refresh + button, --text for terminal)
 ```
 
-## Crisis training (repair regime)
+## Compare
 
 ```bash
-python experiments/make_crisis_states.py runs/games/single_v4.jsonl.gz      # boards 10-40 pieces before death
-python training/train.py --model repair --freeze normal --init models/single_v4.json \
-    --features height,holes,bumpiness,wells,hole_depth \
-    --crisis runs/crisis/single_v4.json --games 400 --max-pieces 1000 --out models/repair_crisis.json
+# fast screen with splitting estimates (paired, held-out estimate seeds)
+python experiments/compare_splitting.py models/single_v4.json models/X.json --estimates 100
+# final answer: full games, paired, held-out seeds (>= 1000 games to see ~10% differences)
+python experiments/compare.py models/single_v4.json models/X.json --games 1000 --max-pieces 10000000
 ```
-
-Each episode starts from a recorded crisis board with fresh pieces, and fitness is
-the share of episodes that get back to a clean board (no holes, height ≤ 8). It is
-hundreds of times cheaper than full games. Always confirm the result with
-`compare.py` on full games.
-
-## Project page
-
-`docs/index.html` is a self-contained page with the training runs, the failure
-analysis that found the new features, all comparisons and the open questions.
-Rebuild it after new results (`--reuse` only re-renders the template):
-
-```bash
-python experiments/build_site.py
-```
-
-To publish it, enable GitHub Pages for the branch with the `/docs` folder.
 
 ## Analyse games for new features
 
 ```bash
-python experiments/record_games.py models/baseline_single_v1.json --games 500
-python experiments/analyze_games.py runs/games/baseline_single_v1.jsonl.gz   # -> results/game_analysis/<model>/report.html
+python experiments/record_games.py models/single_v4.json --games 500
+python experiments/analyze_games.py runs/games/single_v4.jsonl.gz   # -> results/game_analysis/<model>/report.html
 ```
 
 The report is how `wells` and `hole_depth` were found. The method (record
@@ -75,57 +87,59 @@ failures, measure warning power and added information, then validate) is
 described in [docs/ANALYSIS_METHOD.md](docs/ANALYSIS_METHOD.md). Reuse it for
 future feature searches.
 
-Each training run writes `runs/<timestamp>_<model>/` (checkpoint, final model,
-`evolution.png`). Comparisons write `results/compare_<timestamp>.json`. Both
-folders are git-ignored. Models worth keeping go in `models/`.
+## Project page
+
+```bash
+python experiments/build_site.py          # collect results (~1 min) -> docs/index.html
+python experiments/build_site.py --reuse  # re-render after template edits
+```
+
+Training runs (`runs/`) and results (`results/`) are git-ignored; the page is
+their published record. Models worth keeping go in `models/`.
 
 ## Results
 
 All numbers are lines cleared on held-out test seeds (`experiments/compare.py`,
-paired, 50 games, 3M-piece cap unless noted). The model JSON files in `models/`
-are the ones measured. `*` = the 95% CI of the paired difference excludes 0.
+paired). `*` = the 95% CI of the paired difference excludes 0.
 
-| model | features | mean lines | median | vs single_v4 (paired) |
+| model | features | mean lines | median | note |
 |---|---|---:|---:|---|
-| `single_v4` | 5 (no lines) | **413,254** | 272,173 | reference (4/50 games capped) |
-| `single_v3_gen11` | 6 (lines ≈ 0) | 430,538 | 333,190 | +17k (−140k..+169k), same model in practice |
-| `regime_v4` | 5, 3 regimes | 247,897 | 180,388 | **−165k (−275k..−58k) \*** |
-| `regime_v2` | 4, 3 regimes | 2,687 | 1,560 | (vs single_v2: +160, not significant) |
-| `single_v2` | 4 (lines fixed) | 2,527 | 1,432 | |
-| `baseline_single_v1` | 3 effective (old lines bug) | 1,785 | 1,467 | the old GA reported 5,968: winner's curse |
+| `single_v4` | 5 (no lines) | **493,138** | 336,772 | 1,000 games, 10M-piece cap (50 games: 413,254) |
+| `single_v3_gen11` | 6 (lines ≈ 0) | 430,538 | 333,190 | 50 games; same model as v4 in practice |
+| `single_v2` | 4 (lines fixed) | 2,527 | 1,432 | 50 games |
+| `baseline_single_v1` | 3 effective (old lines bug) | 1,785 | 1,467 | 50 games; the old GA reported 5,968: winner's curse |
 
-**Answer to the research question (so far): no.** A regime-switching policy
-did not beat a single weight set. With 4 features it was +6% (not
-significant); with 5 features it is significantly *worse* (−40%).
-- **2-regime test (`repair_v5`):** normal frozen at single_v4, the GA evolved
-  only the repair weights + hole threshold. On 1,000 paired games (10M-piece
-  cap): +9,748 lines (+2%, 95% CI −6%..+10%), 490 wins / 503 losses: no
-  difference. The GA kept the threshold at 7 holes, so repair is used in 1% of
-  moves, too late to matter. (A 100-game test had shown +8.5%: noise.)
-- `regime_v4` hardly switches: normal 98%, repair (holes ≥ 7) 2%, danger
-  (height ≥ 15) 0%. Its *normal* weights drifted away from the good single
-  model (height 0, hole_depth −0.9), and that is where it lost.
-- It started from the single model copied into every regime, so it could have
-  stayed equal. With 20 genes, 4 games per evaluation and lines per game
-  spread almost as wide as the mean, selection followed noise: train 308k →
-  validation 276k → test 248k.
-- `single_v4` ≈ `single_v3_gen11` (practically identical weights): 40 more
-  generations did not improve the single model either. The 5-feature linear
-  model looks converged.
+What made the difference:
+- **Features found from data.** Adding `wells` and `hole_depth`, found by
+  analysing 500 recorded baseline deaths, gave ~200× more lines (2.5k → 413k+).
+- **Honest measurement.** Per-game results spread as wide as the mean, so 5-game
+  scores are meaningless; every comparison is paired on held-out seeds.
+- **Feature ablation (single_v4, 50 games):** without holes, bumpiness or wells
+  the bot collapses (−100%); without height −40% (significant); without hole
+  depth −18% (not significant). `lines` mattered with 4 features (−31%) but the
+  GA set it to ~0 once wells and hole depth existed, so it is dropped.
+- **Board features are used up.** The same failure analysis on single_v4 finds
+  no candidate board feature that adds information (all |partial r| < 0.02).
+- **Death is mostly piece luck.** Boards taken 10 pieces before a recorded
+  death recover about half the time with different pieces. S and Z pieces make
+  most holes; over half of those holes were unavoidable without knowing the
+  next piece.
 
-Other findings:
-- **Features matter far more than regimes.** Adding `wells` and `hole_depth`
-  (found by analysing 500 recorded baseline deaths, see docs/HEURISTICS.md)
-  gave ~200× more lines (1.8k → 413k).
-- **`lines` ablation:** with 4 features, removing `lines` cost −784 lines
-  (significant). With 6 features, a no-lines copy of regime_v3 scored +3,085
-  (not significant) and single_v3 had evolved `lines` ≈ 0, so v4 drops it.
-- **Board height** (single_v3, median lines): 10 rows → 530, 12 → 2,620,
-  14 → 8,572, 16 → 11,994.
+### Regime switching (concluded)
 
-Ideas not tried yet: more games per evaluation (or a shorter board to make
-games shorter and fitness less noisy), regimes on a stat that actually varies
-in good play (e.g. `wells`, `bumpiness`), and 2-piece lookahead.
+The original question was whether different weight sets per situation (e.g.
+"holes ≥ X → repair weights", "height ≥ Y → danger weights") beat one set.
+**Answer: no.**
+- 4 features: `regime_v2` 2,687 vs `single_v2` 2,527 (+6%, not significant).
+- 5 features, 3 regimes: `regime_v4` 247,897 vs `single_v4` 413,254
+  (−40%, significant). The GA set the danger trigger so high it never fired;
+  the normal weights drifted under noise.
+- 2 regimes, normal frozen at single_v4 (`repair_v5`): 1,000 paired games,
+  +2% (95% CI −6%..+10%), 490 wins / 503 losses. Repair only triggers at
+  7 holes (1% of moves), too late to matter.
+- Repair weights trained on recorded crisis boards: 76% recovery on training
+  boards but 71% on held-out boards, the same as single_v4. It learned the
+  boards, not a skill.
 
 ## Layout
 
@@ -133,18 +147,20 @@ in good play (e.g. `wells`, `bumpiness`), and 2-piece lookahead.
 tetris/            engine and AI
   game.py          board, drop, line clear, simulate_move (non-destructive)
   pieces.py        7 tetrominoes, seeded uniform / 7-bag generators
-  features.py      height, lines, holes, bumpiness, wells, hole_depth (+ regime stats)
-  policy.py        Policy: ordered regime rules -> weight sets; JSON load/save
-  play.py          play_game(policy, seed, ...), GameRecorder, seed ranges
-  fastcore.c/.py   C port of the hot path (drop, features, regimes, move search) + ctypes bridge
-training/          ga.py (generic named-gene GA), train.py (CLI), watch.py (live plot)
-experiments/       compare.py (paired benchmark), record_games.py + analyze_games.py,
-                   make_crisis_states.py, build_site.py + site_template.html (project page)
+  features.py      height, lines, holes, bumpiness, wells, hole_depth (+ board stats)
+  policy.py        Policy: weight set(s) + optional regime rules; JSON load/save
+  play.py          play_game, record_game (fast recorder), GameRecorder, seed ranges
+  fastcore.c/.py   C port of the hot path + episodes from any board with stop rules
+  splitting.py     multilevel-splitting estimate of expected game length
+training/          ga.py (GA / cross-entropy over named genes), train.py (CLI), watch.py (live plot)
+experiments/       compare.py (full games), compare_splitting.py (fast screen),
+                   record_games.py + analyze_games.py (failure analysis),
+                   make_start_states.py, build_site.py + site_template.html (project page)
 models/            saved models (JSON)
 demo.py            terminal demo     demo_pygame.py  graphical demo
-docs/              HEURISTICS.md (how it works) + earlier research notes
-                   (those refer to the old src/ layout)
+docs/              index.html (project page), HEURISTICS.md (how it works),
+                   ANALYSIS_METHOD.md (failure-analysis method), earlier research notes
 ```
 
-See [docs/HEURISTICS.md](docs/HEURISTICS.md) for the features, how regimes are
-chosen, and how the GA keeps noise under control.
+See [docs/HEURISTICS.md](docs/HEURISTICS.md) for the features, training and
+how noise is kept under control.

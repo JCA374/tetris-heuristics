@@ -5,23 +5,26 @@ Guidance for Claude Code when working in this repository.
 ## Project
 
 Heuristic Tetris AI (no deep learning). Every drop is scored with a weighted sum
-of 6 features (height, lines, holes, bumpiness, wells, hole_depth), and the
-weights are evolved with a GA. Current research question: does a **regime-switching** policy
-(different weight sets chosen by board-state rules) beat a single weight set?
+of board features (height, holes, bumpiness, wells, hole_depth; `lines` exists
+but is 0 in current models), and the weights are tuned with a GA or the
+cross-entropy method. **Focus: the single model (one weight set).** The
+regime-switching research is concluded (never beat the single model); keep its
+code working (old models must load and play) but do not develop it further.
 See README.md for results and docs/HEURISTICS.md for the design.
 
 ## Commands
 
 ```bash
-python -m pytest tests                                    # all tests (fast, ~5s)
+python -m pytest tests                                    # all tests (~1 min)
 python demo.py [--model models/X.json] [--delay 0]        # terminal demo
-python training/train.py --model single|regime --workers 8 --out models/X.json
-python training/train.py --model regime --quick           # smoke test
-python experiments/compare.py models/A.json models/B.json --games 50
-python experiments/record_games.py models/X.json --games 500         # board logs
-python experiments/analyze_games.py runs/games/X.jsonl.gz            # feature research report
-python experiments/make_crisis_states.py runs/games/X.jsonl.gz       # crisis start states
-python training/train.py --model repair --freeze normal --init models/X.json --crisis runs/crisis/X.json
+python experiments/record_games.py models/X.json --games 500         # board logs (fast, C core)
+python experiments/make_start_states.py runs/games/X.jsonl.gz        # clean start boards for splitting
+python training/train.py --model single --features height,holes,bumpiness,wells,hole_depth \
+    --init models/X.json --fitness splitting --optimizer cem|ga --workers 8 --out models/Y.json
+python training/train.py --model single --quick           # smoke test
+python experiments/compare_splitting.py models/A.json models/B.json --estimates 100   # fast screen
+python experiments/compare.py models/A.json models/B.json --games 1000 --max-pieces 10000000   # final
+python experiments/analyze_games.py runs/games/X.jsonl.gz            # failure-analysis report
 python experiments/build_site.py [--reuse]                           # project page docs/index.html
 ```
 
@@ -35,31 +38,36 @@ python experiments/build_site.py [--reuse]                           # project p
   is passed in (lines cleared by the move), because cleared rows are gone from
   the simulated board. Models without a weight for a feature get 0 (Policy),
   so adding features never changes how old models play.
-- `tetris/policy.py` `Policy`: ordered rules (`stat`/`op`/`threshold`, and the last one
-  is the default) with one weight set per regime. The regime is selected from the
-  **pre-move** board, then used for all candidates and lookahead.
-  `Policy.single(w)` is a one-rule policy. `TEMPLATES` defines the trainable rule sets.
-- `tetris/play.py` `play_game(policy, seed, max_pieces, lookahead, randomizer, recorder)`.
-  Seed ranges: test 0…, validation 1M…, train 2M…, analysis 3M…, crisis 4M… (train) / 5M… (validation), site crisis chart 6M…. Never mix them.
+- `tetris/policy.py` `Policy`: ordered rules with one weight set per regime (the
+  last rule is the default). A single model is `Policy.single(w)`. `TEMPLATES`
+  holds the trainable rule sets ('single' is the one in use).
+- `tetris/play.py` `play_game(...)` and `record_game(...)` (C core plays, Python
+  replays only the end with a GameRecorder). Seed ranges: test 0…, validation 1M…,
+  train 2M…, analysis 3M…, splitting train 4M… / validation 5M… / test 7M…,
+  site crisis chart 6M…. Never mix them.
 - `tetris/fastcore.c` (+ `fastcore.py` ctypes bridge): C port of drop, line clear,
-  `board_stats`/`evaluate`, regime selection and move search. `play_game` uses it
-  automatically unless `on_move`/`recorder` hooks are given (`engine='python'` forces
-  Python). Pieces still come from the Python generators, so seeds match. It must stay
-  **bit-identical** to Python: same move order, strict `>` tie-break, same float
-  summation order, built with `-ffp-contract=off`; `tests/test_fastcore.py` checks it.
-  Built to `tetris/_build/` (git-ignored), keyed by source hash.
-- `training/ga.py`: genes `<regime>.<feature>` and `<regime>.threshold`. Uses
-  common random numbers per generation, an archive of accumulated evaluations,
-  and a final pick on validation seeds.
+  `board_stats`/`evaluate`, regime selection and move search, plus `play_until`
+  (episodes from any board that stop at a hole level, on recovery or game over;
+  `fastcore.play_from`). `play_game` uses the C core automatically unless
+  `on_move`/`recorder` hooks are given. It must stay **bit-identical** to Python:
+  same move order, strict `>` tie-break, same float summation order, built with
+  `-ffp-contract=off`; `tests/test_fastcore.py` checks it.
+- `tetris/splitting.py` `estimate(policy, starts, seed)`: multilevel splitting
+  estimate of ln(pieces per death) (levels 6/10/14/18 holes, then death). The
+  training fitness for strong models; deterministic for a given seed.
+- `training/ga.py`: genes `<regime>.<feature>`; optimizer 'ga' (archive-mean
+  selection, elites re-evaluated) or 'cem' (cross-entropy: sample, keep top 25%,
+  refit, decaying extra noise); fitness 'games' or 'splitting'; common random
+  numbers per generation; final pick on validation seeds/estimates.
 
 ## Conventions
 
-- Core code is stdlib-only. matplotlib and pygame are optional imports.
-- Performance matters (GA plays millions of pieces). Benchmark with
-  `python training/train.py --bench` after touching game.py or features.py, and
-  make sure moves stay identical (seeded games give the same lines).
-- To compare models, always use `experiments/compare.py` (paired, held-out seeds,
-  ≥ 50 games). Single games or 5-game means are far too noisy.
+- Core code is stdlib-only. matplotlib, numpy and pygame are optional imports.
+- Performance matters. Benchmark with `python training/train.py --bench` after
+  touching game.py or features.py, and make sure moves stay identical.
+- Noise: one game's lines spread as wide as the mean (log sd 1.25). Never judge
+  from single games or few-game means. Screen with `compare_splitting.py`,
+  conclude with `compare.py` (paired, held-out, ≥ 1000 games for ~10% effects).
 - Analysis/feature research: follow docs/ANALYSIS_METHOD.md (the user's preferred
   report style: self-contained HTML, one question per chart, dataviz palette).
 - New features: add to `FEATURES`/`board_stats`/`evaluate` in `tetris/features.py`
@@ -67,12 +75,9 @@ python experiments/build_site.py [--reuse]                           # project p
   `board_stats`, `evaluate`) and `fastcore.py` (the FEATURES assert); run
   `tests/test_fastcore.py`. Check the definition against
   `experiments/analyze_games.py` if it came from there.
-- New board scenarios: add a template to `TEMPLATES` (plus threshold bounds in
-  `training/ga.py` for new stats). New stats must also go into `STATS` in
-  `fastcore.py` and `select_regime` in `fastcore.c`.
-- Strong models play hundreds of thousands of lines per game; always pass a
-  `--max-pieces` cap and watch for capped games (they hide differences).
-- After new results, update `experiments/build_site.py` (RUNS / compare paths) and rebuild
-  `docs/index.html`; the page is the published record of the git-ignored runs/results.
-  Charts follow the dataviz palette and docs/ANALYSIS_METHOD.md style.
+- Strong models play ~1M pieces per game; always pass a `--max-pieces` cap to
+  full-game runs and watch for capped games (they hide differences).
+- After new results, update `experiments/build_site.py` (RUNS / compare paths) and
+  rebuild `docs/index.html`; the page is the published record of the git-ignored
+  runs/results. Charts follow the dataviz palette and docs/ANALYSIS_METHOD.md style.
 - `runs/`, `results/` and `logs/` are git-ignored. Keep models worth keeping in `models/`.

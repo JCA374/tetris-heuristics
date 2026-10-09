@@ -40,7 +40,14 @@ number picks the same moves. Only the ratios matter.
 > before the fix effectively had three features. `models/baseline_single_v1.json`
 > stores `lines = 0.0` so it plays exactly as it did then.
 
-## Regime-switching policies (`tetris/policy.py`)
+## Regime-switching policies (`tetris/policy.py`): concluded
+
+> **Status (Oct 2026): concluded, not developed further.** No regime model beat
+> the single model: 3 regimes lost −40% (significant), a 2-regime model with the
+> normal weights frozen was +2% (95% CI −6%..+10%, 1,000 games), and repair
+> weights trained on recorded crisis boards did not generalise (76% recovery on
+> training boards, 71% on held-out boards = no gain). The code below still works
+> so old models load and play; new work targets the single model.
 
 A policy is an ordered list of rules, each naming a regime with its own weight
 set. The last rule is the unconditional default:
@@ -72,7 +79,45 @@ uses a new stat, add threshold bounds in `training/ga.py`. Then train with
 
 ## Training (`training/ga.py`)
 
-- **Genome:** named genes such as `normal.holes` (weights) and `repair.threshold`
+Two choices: the **fitness** (what a genome is scored on) and the **optimizer**.
+
+### Fitness: full games or multilevel splitting
+
+`--fitness games` scores a genome by lines per full game. For strong models
+that is expensive and noisy: about one death per million pieces (~9 CPU-seconds
+per game) and a per-game spread as wide as the mean (sd of log lines 1.25).
+
+`--fitness splitting` (`tetris/splitting.py`) estimates the expected game
+length from short episodes instead. Deaths follow a ladder of hole counts.
+Measured on single_v4 from clean boards:
+
+| holes reached | pieces until it happens | P(death from there) |
+|---|---:|---:|
+| ≥ 2 | 108 | 0 |
+| ≥ 6 | 2,324 | 0.1% |
+| ≥ 10 | 29,210 | 2.1% |
+
+So `pieces per death ≈ T / (P(6→10) · P(10→14) · P(14→18) · P(18→death))`,
+where T is the mean time from a clean board to 6 holes and each P is "reach the
+next level before recovering to a clean board (no holes, height ≤ 8)". Each
+factor is a common event: 40 episodes from recorded clean boards
+(`experiments/make_start_states.py`) measure T and give level-6 boards, and
+each level runs 8 continuations from up to 40 boards. The crisis boards are
+reached by the evaluated policy's own play, so nothing is learned from a fixed
+set of states.
+
+Checked against full games: it ranks single_v4 > no hole depth > no height >
+single_v2 > baseline like full games do, the gaps match (log ratio 0.17 vs 0.19
+real, 0.43 vs 0.52), and single_v4's scale is close (1.45M vs ~1.2M pieces per
+death). One estimate costs ~4 CPU-seconds with sd(log) ≈ 0.45, worth ~8 full
+games: about 17× more information per CPU-second. The fitness value is
+ln(pieces per death); logs print it as estimated lines (÷ 2.5 pieces per line).
+
+### Optimizers
+
+GA (`--optimizer ga`, the default):
+
+- **Genome:** named genes such as `default.holes` (weights) and `repair.threshold`
   (an integer switch point). The single model has one gene per feature (6, or fewer with `--features`);
   the 3-regime model has 3× that plus 2 thresholds (20 with all 6 features).
   Features left out are fixed at weight 0.
@@ -94,8 +139,19 @@ uses a new stat, add threshold bounds in `training/ga.py`. Then train with
   every regime, so the regime model starts exactly where the single model
   does and only diverges where switching helps.
 
+Cross-entropy method (`--optimizer cem`), the standard for Tetris weights
+(Szita & Lőrincz, 2006): each generation samples the population from a
+Gaussian per gene (individual 0 is the mean itself), keeps the best 25%, and
+refits mean and spread. Extra noise (3% of each gene's range, decaying to 0 at
+80% of the run) keeps the search from collapsing early. With `--init` it starts
+at that model with a spread of 10% of each range. Every sample is new, so there
+is no lucky-archive problem; the final pick validates the final mean against
+the best samples.
+
 Seed ranges never overlap (`tetris/play.py`): test 0…, validation 1,000,000…,
-training 2,000,000…, analysis 3,000,000….
+training 2,000,000…, analysis 3,000,000…, splitting training 4,000,000…,
+splitting validation 5,000,000…, site chart 6,000,000…, splitting test
+7,000,000….
 
 ## Speed: the C core
 
