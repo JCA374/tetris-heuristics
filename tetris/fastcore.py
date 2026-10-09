@@ -84,6 +84,8 @@ def _load():
     lib.play.restype = ctypes.c_int64
     lib.play.argtypes = [ctypes.POINTER(CGame), ctypes.POINTER(CPolicy), ctypes.POINTER(ctypes.c_int8),
                          ctypes.c_int64, ctypes.c_int, ctypes.c_int64, ctypes.POINTER(ctypes.c_int64)]
+    lib.play_recover.restype = ctypes.c_int64
+    lib.play_recover.argtypes = lib.play.argtypes + [ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
     lib.best_move.restype = ctypes.c_int
     lib.best_move.argtypes = [ctypes.POINTER(CGame), ctypes.POINTER(CPolicy), ctypes.c_int, ctypes.c_int,
                               ctypes.POINTER(ctypes.c_int)]
@@ -125,6 +127,46 @@ def to_cpolicy(policy):
         for j, f in enumerate(FEATURES):
             cp.w[i][j] = float(weights[f])
     return cp
+
+
+def board_rows(board, width=10):
+    """Board as row strings ('.' = empty) or row bitmasks -> list of row bitmasks."""
+    if board and isinstance(board[0], str):
+        return [sum(1 << c for c, ch in enumerate(row) if ch != '.') for row in board]
+    return [int(r) for r in board]
+
+
+def play_from(policy, board, seed=None, max_pieces=1000, lookahead=False, randomizer='random',
+              recover_max_height=8, width=10):
+    """
+    Crisis episode: start from `board` (row strings or bitmasks, row 0 = top) with a fresh
+    piece sequence and play until the board has recovered (no holes, max height <=
+    recover_max_height), the game is over, or max_pieces pieces are placed.
+
+    Returns dict(recovered, pieces, lines, game_over, regime_counts).
+    """
+    lib = _load()
+    if lib is None:
+        raise RuntimeError(f'fastcore unavailable: {_error}')
+    rows = board_rows(board, width)
+    game = CGame(width=width, height=len(rows))
+    for r, bits in enumerate(rows):
+        game.rows[r] = bits
+    cpol = to_cpolicy(policy)
+    counts = (ctypes.c_int64 * MAX_RULES)()
+    recovered = ctypes.c_int(0)
+    generator = make_generator(randomizer, seed)
+    buffer = [PIECE_INDEX[generator.get_next_piece().name] for _ in range(max_pieces + 1)]
+    seq = (ctypes.c_int8 * len(buffer))(*buffer)
+    lib.play_recover(ctypes.byref(game), ctypes.byref(cpol), seq, len(buffer), int(lookahead),
+                     max_pieces, counts, recover_max_height, ctypes.byref(recovered))
+    return {
+        'recovered': bool(recovered.value),
+        'pieces': game.pieces,
+        'lines': game.lines,
+        'game_over': bool(game.game_over),
+        'regime_counts': {rule['name']: counts[i] for i, rule in enumerate(policy.rules) if counts[i]},
+    }
 
 
 class Runner:

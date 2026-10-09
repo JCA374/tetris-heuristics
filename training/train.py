@@ -42,6 +42,9 @@ def main():
     parser.add_argument('--freeze', default='',
                         help='comma-separated regimes whose weights stay at the --init model values '
                              '(e.g. --model repair --freeze normal)')
+    parser.add_argument('--crisis', help='train from crisis start states (experiments/make_crisis_states.py '
+                                         'output); fitness = recovery rate, --games = episodes, '
+                                         '--max-pieces = episode length')
     parser.add_argument('--validation-games', type=int, default=30)
     parser.add_argument('--seed', type=int, default=0, help='GA random seed')
     parser.add_argument('--out', help='where to save the final model (always also in runs/)')
@@ -59,6 +62,11 @@ def main():
         parser.error(f"unknown features: {', '.join(sorted(unknown))}")
 
     init_policy = None if args.init == 'none' else Policy.load(args.init)
+    crisis = None
+    if args.crisis:
+        import json
+        with open(args.crisis) as f:
+            crisis = json.load(f)
 
     ga = GeneticAlgorithm(
         template_name=args.model, population_size=args.population, games=args.games,
@@ -67,6 +75,7 @@ def main():
         validation_games=args.validation_games,
         features=features,
         freeze=[r for r in args.freeze.split(',') if r],
+        crisis=crisis,
     )
 
     if args.bench:

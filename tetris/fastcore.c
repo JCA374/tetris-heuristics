@@ -316,3 +316,35 @@ int64_t play(Game *g, const Policy *pol, const int8_t *seq, int64_t n, int looka
     }
     return i;
 }
+
+/*
+ * Crisis episodes: like play(), but also stops as soon as the board has
+ * recovered (no holes and max height <= recover_max_height). *recovered is set
+ * to 1 in that case. Used to train repair behaviour from recorded bad states.
+ */
+int64_t play_recover(Game *g, const Policy *pol, const int8_t *seq, int64_t n, int lookahead,
+                     int64_t max_pieces, int64_t *regime_counts, int recover_max_height, int *recovered)
+{
+    int64_t i = 0;
+    Stats s;
+    *recovered = 0;
+    while (!g->game_over && i + 1 < n) {
+        if (max_pieces >= 0 && g->pieces >= max_pieces)
+            break;
+        int regime;
+        int m = best_move(g, pol, seq[i], lookahead ? seq[i + 1] : -1, &regime);
+        regime_counts[regime]++;
+        if (m < 0) {
+            g->game_over = 1;
+            break;
+        }
+        place(g, seq[i], m / 64, m % 64);
+        i++;
+        board_stats(g, &s);
+        if (s.holes == 0 && s.max_height <= recover_max_height) {
+            *recovered = 1;
+            break;
+        }
+    }
+    return i;
+}

@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tetris AI Lab</title>
+<meta name="description" content="How a heuristic Tetris bot went from 1,785 to 413,000 lines: training runs, honest evaluation, and the failure analysis that found the features that mattered.">
+<style>
+:root {
+  color-scheme: light;
+  --surface: #fcfcfb;
+  --surface-2: #f3f2ef;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-3: #85837d;
+  --grid: #e4e3df;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
+  --muted: #b4b2ac;
+  --good: #0ca30c; --critical: #d03b3b;
+  --empty-cell: #efeeea;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface: #1a1a19; --surface-2: #252523; --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8e8d85;
+    --grid: #383835;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+    --muted: #6b6a64; --empty-cell: #2c2c2a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: #1a1a19; --surface-2: #252523; --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8e8d85;
+  --grid: #383835;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  --muted: #6b6a64; --empty-cell: #2c2c2a;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--surface); color: var(--ink);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--s1); }
+header.top {
+  position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px); border-bottom: 1px solid var(--grid);
+}
+.top-inner { max-width: 1080px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 16px; align-items: center; }
+.top-inner .brand { font-weight: 700; white-space: nowrap; }
+nav { display: flex; gap: 14px; overflow-x: auto; scrollbar-width: none; flex: 1; }
+nav a { color: var(--ink-2); text-decoration: none; font-size: 14px; white-space: nowrap; }
+nav a:hover { color: var(--ink); }
+.theme-btn {
+  border: 1px solid var(--grid); background: var(--surface-2); color: var(--ink-2); border-radius: 6px;
+  padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer;
+}
+main { max-width: 1080px; margin: 0 auto; padding: 0 16px 80px; }
+.hero { padding: 48px 0 24px; }
+.hero h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; }
+.hero p.lede { font-size: 19px; color: var(--ink-2); max-width: 720px; margin: 0; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 28px 0 8px; }
+.tile { background: var(--surface-2); border-radius: 10px; padding: 16px 18px; }
+.tile .label { font-size: 13px; color: var(--ink-2); }
+.tile .value { font-size: 30px; font-weight: 700; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.tile .note { font-size: 13px; color: var(--ink-3); }
+section { padding: 36px 0 8px; border-top: 1px solid var(--grid); margin-top: 28px; scroll-margin-top: 56px; }
+section > h2 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; }
+.kicker { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--s1); }
+.prose { max-width: 720px; color: var(--ink); }
+.prose p { margin: 10px 0; }
+.muted { color: var(--ink-2); }
+.figure { margin: 22px 0 8px; }
+.figure h3 { font-size: 17px; margin: 0 0 2px; }
+.figure .caption { font-size: 14px; color: var(--ink-2); margin: 0 0 10px; max-width: 760px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 12px 28px; }
+.chart { width: 100%; overflow: hidden; }
+.chart svg { overflow: visible; }
+details.data { margin-top: 6px; font-size: 13px; color: var(--ink-2); }
+details.data summary { cursor: pointer; }
+details.data table { border-collapse: collapse; margin-top: 6px; font-variant-numeric: tabular-nums; }
+details.data td, details.data th { padding: 2px 10px 2px 0; text-align: right; border-bottom: 1px solid var(--grid); }
+details.data td:first-child, details.data th:first-child { text-align: left; }
+.callout { border-left: 3px solid var(--s1); background: var(--surface-2); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 18px 0; max-width: 760px; }
+.callout strong { color: var(--ink); }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.controls button {
+  border: 1px solid var(--grid); background: var(--surface); color: var(--ink-2); border-radius: 999px;
+  padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer;
+}
+.controls button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.boards { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px; }
+.board figcaption { font-size: 12px; color: var(--ink-2); text-align: center; font-variant-numeric: tabular-nums; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--ink-2); margin: 4px 0 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.legend i.dot { border-radius: 50%; width: 9px; height: 9px; }
+.legend i.line { height: 3px; border-radius: 2px; width: 16px; }
+.legend i.dash { height: 0; width: 16px; border-top: 2px dashed currentColor; border-radius: 0; }
+table.weights { border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; width: 100%; max-width: 860px; }
+table.weights th, table.weights td { padding: 6px 10px; border-bottom: 1px solid var(--grid); text-align: right; }
+table.weights th:first-child, table.weights td:first-child { text-align: left; }
+table.weights td.zero { color: var(--ink-3); }
+.scroll-x { overflow-x: auto; }
+ol.next li { margin: 6px 0; }
+footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px solid var(--grid); margin-top: 40px; }
+@media (max-width: 640px) { .top-inner .brand { display: none; } .tile .value { font-size: 26px; } }
+</style>
+</head>
+<body>
+<header class="top"><div class="top-inner">
+  <span class="brand">Tetris AI Lab</span>
+  <nav>
+    <a href="#bot">The bot</a><a href="#noise">Measuring</a><a href="#training">Training</a>
+    <a href="#discovery">Discovery</a><a href="#results">Results</a><a href="#regimes">Regimes</a>
+    <a href="#limits">Limits</a><a href="#next">Next</a>
+  </nav>
+  <button class="theme-btn" id="theme" type="button" aria-label="Toggle light or dark theme">Theme</button>
+</div></header>
+
+<main>
+<div class="hero">
+  <div class="kicker">Data-driven learning, documented</div>
+  <h1>From 1,785 to 413,000 lines by looking at how the bot dies</h1>
+  <p class="lede">A heuristic Tetris bot with weights tuned by a genetic algorithm. The breakthrough did not come from more
+  training or smarter rules but from recording thousands of lost games, measuring what predicts death, and adding the two
+  features that were missing.</p>
+  <div class="tiles" id="tiles"></div>
+</div>
+
+<section id="bot">
+  <div class="kicker">1 · The bot</div>
+  <h2>Every move is a weighted sum</h2>
+  <div class="prose">
+    <p>For each piece the bot tries every rotation and column, simulates the board after the drop, and scores it:
+    <code>score = Σ weight × feature</code>. The highest score wins. A genetic algorithm searches for the weights.
+    A <em>regime</em> model has several weight sets and picks one from the board before the move (e.g. "repair" when
+    there are many holes).</p>
+  </div>
+  <div class="figure">
+    <h3>Weights of the main models</h3>
+    <p class="caption">Only the ratios matter. "–" = the model does not use the feature. Regime models show one row per regime.</p>
+    <div class="scroll-x" id="weights"></div>
+  </div>
+</section>
+
+<section id="noise">
+  <div class="kicker">2 · Measuring honestly</div>
+  <h2>One game says almost nothing</h2>
+  <div class="prose">
+    <p>The old genetic algorithm reported a best model of <strong>5,968 lines</strong>. Replayed on fresh games, that
+    model averages <strong id="baseline-mean">1,785</strong>. It was the luckiest of thousands of noisy 5-game scores, a
+    textbook winner's curse. Since then every number on this page comes from paired comparisons on held-out seeds that
+    training never saw.</p>
+  </div>
+  <div class="grid2">
+    <div class="figure">
+      <h3>Lines per game, same model, 500 games</h3>
+      <p class="caption">single_v4 on 500 different piece sequences. Game length behaves like a waiting time for one fatal
+      run of pieces, so the spread is as wide as the mean.</p>
+      <div class="chart" id="c-noise-hist"></div>
+    </div>
+    <div class="figure">
+      <h3>How many games does a score need?</h3>
+      <p class="caption">Uncertainty of a mean (standard error, % of the mean) vs. games played, from the spread on the left.
+      A 10% improvement needs about 1,000 games per model to show.</p>
+      <div class="chart" id="c-noise-se"></div>
+    </div>
+  </div>
+</section>
+
+<section id="training">
+  <div class="kicker">3 · Training</div>
+  <h2>Genetic algorithm runs</h2>
+  <div class="prose"><p>Each generation every individual plays the same new piece sequences. The <em>leader</em> is the
+  genome with the best average over all games it has played, the most trustworthy line here. Pick a run:</p></div>
+  <div class="controls" id="run-buttons" role="group" aria-label="Training run"></div>
+  <div class="figure">
+    <h3 id="run-title"></h3>
+    <p class="caption" id="run-caption"></p>
+    <div class="legend" id="run-legend"></div>
+    <div class="chart" id="c-run"></div>
+    <div class="chart" id="c-run-thr"></div>
+    <details class="data"><summary>Data table</summary><div id="t-run"></div></details>
+  </div>
+</section>
+
+<section id="discovery">
+  <div class="kicker">4 · Discovery</div>
+  <h2>Recording 500 deaths found the missing features</h2>
+  <div class="prose">
+    <p>We recorded 500 games of the original model: the final board, the last 300 boards before death and snapshots
+    along the way. Then we computed 12 candidate features on every board and asked two questions: does a feature
+    <em>warn</em> of death, and does it add information the model's own features do not already have?</p>
+  </div>
+  <div class="figure">
+    <h3>How the original model dies</h3>
+    <p class="caption">Final boards of 8 random games, sorted by lines cleared. Colors show the piece that filled each cell.</p>
+    <div class="legend" id="piece-legend"></div>
+    <div class="boards" id="boards-baseline"></div>
+  </div>
+  <div class="grid2">
+    <div class="figure">
+      <h3>What a candidate adds beyond height, holes and bumpiness</h3>
+      <p class="caption">Partial correlation with dying sooner after removing what the model's features already explain.
+      The two highlighted became new features.</p>
+      <div class="chart" id="c-added-baseline"></div>
+    </div>
+    <div class="figure">
+      <h3>Deaths wait for an I-piece</h3>
+      <p class="caption">Pieces since the last I-piece at death (bars) vs. what chance predicts (line). Long droughts are
+      far over-represented: the board had become dependent on deep wells only an I can fill.</p>
+      <div class="chart" id="c-drought"></div>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="figure">
+      <h3>Holes pile up at the walls</h3>
+      <p class="caption">Share of all holes at death by column. Dashed: an even spread (10%).</p>
+      <div class="chart" id="c-holecols"></div>
+    </div>
+    <div class="callout" style="align-self:center">
+      <strong>Result:</strong> two new features. <strong>wells</strong> (sum of d(d+1)/2 over columns lower than both
+      neighbours, walls count as high) and <strong>hole depth</strong> (filled cells above each hole). Retrained with
+      them, the bot went from ~2,500 to over 400,000 lines per game.
+    </div>
+  </div>
+</section>
+
+<section id="results">
+  <div class="kicker">5 · Results</div>
+  <h2>Every model on the same 50 held-out games</h2>
+  <div class="figure">
+    <h3>Lines per game (log scale)</h3>
+    <p class="caption">Dots: single games. Bar: mean with 95% bootstrap interval. Same piece sequences for every model.
+    Note the log scale: each grid step is 10×.</p>
+    <div class="chart" id="c-models"></div>
+    <details class="data"><summary>Data table</summary><div id="t-models"></div></details>
+  </div>
+  <div class="grid2">
+    <div class="figure">
+      <h3>Which features does single_v4 need?</h3>
+      <p class="caption">Change in mean lines when one feature is switched off (95% interval, paired on 50 games).
+      Holes, bumpiness and wells are essential; height matters; hole depth is a tie-breaker.</p>
+      <div class="chart" id="c-ablation"></div>
+    </div>
+    <div class="figure">
+      <h3>Does the <code>lines</code> feature help?</h3>
+      <p class="caption">Same idea with the earlier models: dropping the reward for clearing lines. With only 4 features
+      it mattered; once wells and hole depth were in, the GA had set it to ~0 by itself, so v4 drops it.</p>
+      <div class="chart" id="c-lines-ablation"></div>
+    </div>
+  </div>
+</section>
+
+<section id="regimes">
+  <div class="kicker">6 · Regimes</div>
+  <h2>Switching weight sets has not paid off (yet)</h2>
+  <div class="prose">
+    <p>The original question: does a model that changes its weights depending on the situation beat one weight set?
+    The 3-regime model (repair when holes ≥ 7, danger when height ≥ 15, else normal) lost clearly to the single model.
+    The GA put the danger trigger so high it never fires, and repair only kicks in when the game is already lost.</p>
+  </div>
+  <div class="grid2">
+    <div class="figure">
+      <h3>regime_v4: which regime is active before death</h3>
+      <p class="caption">Share of games in each regime over the last 300 pieces, from 500 recorded games.</p>
+      <div class="legend" id="regime-legend"></div>
+      <div class="chart" id="c-regime-runup"></div>
+    </div>
+    <div class="figure">
+      <h3>2-regime test: repair_v5 vs single_v4</h3>
+      <p class="caption" id="repair-caption"></p>
+      <div class="chart" id="c-repair"></div>
+      <details class="data"><summary>Data table</summary><div id="t-repair"></div></details>
+    </div>
+  </div>
+</section>
+
+<section id="limits">
+  <div class="kicker">7 · Limits of the current approach</div>
+  <h2>The board features are used up, and death is mostly luck</h2>
+  <div class="prose"><p>The same failure analysis on single_v4 gives a very different picture from the first time.</p></div>
+  <div class="grid2">
+    <div class="figure">
+      <h3>No candidate adds information any more</h3>
+      <p class="caption">Same chart as in Discovery, for single_v4 (same scale). Every candidate is within ±0.02.</p>
+      <div class="chart" id="c-added-v4"></div>
+    </div>
+    <div class="figure">
+      <h3>From a crisis, fresh pieces usually save it</h3>
+      <p class="caption">Boards taken N pieces before a recorded death, replayed with new random pieces: share that
+      recover to a clean board. Even 10 pieces from death, about half survive.</p>
+      <div class="chart" id="c-crisis"></div>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="figure">
+      <h3>S and Z make the holes</h3>
+      <p class="caption">Share of moves that create a hole without clearing a line, in the run-up to death (single_v4).
+      Over half of these S/Z holes had no hole-free option: only knowing the next piece could avoid them.</p>
+      <div class="chart" id="c-hole-rate"></div>
+    </div>
+    <div class="figure">
+      <h3>What the bot dies of now</h3>
+      <p class="caption">single_v4 final boards: flat surfaces over rows each blocked by a hole or two. Gray cells come
+      from the fast C engine, which does not track piece letters.</p>
+      <div class="boards" id="boards-v4"></div>
+    </div>
+  </div>
+</section>
+
+<section id="next">
+  <div class="kicker">8 · Next</div>
+  <h2>What the data suggests next</h2>
+  <ol class="next prose">
+    <li><strong>Move features.</strong> Landing height and eroded cells (Dellacherie). They describe the move, not the
+    board, so they can target the 93% of non-S/Z hole moves where a hole-free option existed.</li>
+    <li><strong>Crisis training for repair.</strong> Train the repair regime from recorded crisis boards with fresh
+    pieces: hundreds of times cheaper than full games, scored by recovery rate.</li>
+    <li><strong>Lookahead.</strong> Use the next-piece preview, which targets the forced S/Z holes.</li>
+    <li><strong>Less noisy training.</strong> More, shorter episodes per individual, or CMA-ES / cross-entropy search.</li>
+  </ol>
+  <div class="callout">The method behind every chart here is written up in
+  <a href="ANALYSIS_METHOD.md">docs/ANALYSIS_METHOD.md</a>: record failures with context, compute candidate signals,
+  measure warning power and added information, then confirm with a paired experiment.</div>
+</section>
+
+<footer id="footer"></footer>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6"></script>
+<script>
+const DATA = /*__DATA__*/null;
+
+const LABELS = {
+  agg_height: 'aggregate height', holes: 'holes', bumpiness: 'bumpiness', max_height: 'max height',
+  height_spread: 'max - min height', rows_with_holes: 'rows with holes', hole_depth: 'hole depth',
+  max_col_holes: 'most holes in a column', row_transitions: 'row transitions', col_transitions: 'column transitions',
+  cum_wells: 'cumulative wells', max_well: 'deepest well', deep_wells: 'wells deeper than 2',
+  near_full_rows: 'rows with 8-9 cells', surface_rough2: 'squared height steps',
+  piece_fit: 'piece types that fit', sz_fit: 'S/Z that fit',
+};
+const PIECES = 'IOTSZJL';
+const FEATURES = ['height', 'lines', 'holes', 'bumpiness', 'wells', 'hole_depth'];
+const fmt = d3.format(',.0f');
+const pct = d3.format('.0%');
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const series = () => [1, 2, 3, 4, 5, 6, 7, 8].map(i => css(`--s${i}`));
+const pieceColor = p => p && PIECES.includes(p) ? series()[PIECES.indexOf(p)] : css('--muted');
+
+// ---- theme ---------------------------------------------------------------------
+const themeBtn = document.getElementById('theme');
+function isDark() {
+  const t = document.documentElement.dataset.theme;
+  return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+}
+function setThemeLabel() { themeBtn.textContent = isDark() ? 'Light' : 'Dark'; }
+themeBtn.addEventListener('click', () => {
+  document.documentElement.dataset.theme = isDark() ? 'light' : 'dark';
+  try { localStorage.setItem('theme', document.documentElement.dataset.theme); } catch (e) {}
+  setThemeLabel(); renderAll();
+});
+try { const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { setThemeLabel(); renderAll(); });
+setThemeLabel();
+
+// ---- helpers -------------------------------------------------------------------
+function base(el, opts) {
+  const width = Math.max(280, el.clientWidth || 600);
+  return Plot.plot({
+    width, marginLeft: 50, marginRight: 48, marginTop: 30, marginBottom: 40, ...opts,
+    style: { background: 'transparent', color: css('--ink-2'), fontSize: '12px', fontFamily: 'inherit', ...(opts.style || {}) },
+  });
+}
+function mount(id, node) { const el = document.getElementById(id); el.replaceChildren(node); }
+function table(id, cols, rows) {
+  const t = document.createElement('table');
+  t.innerHTML = '<tr>' + cols.map(c => `<th>${c[0]}</th>`).join('') + '</tr>' +
+    rows.map(r => '<tr>' + cols.map(c => `<td>${c[1](r)}</td>`).join('') + '</tr>').join('');
+  document.getElementById(id).replaceChildren(t);
+}
+function legend(id, items) {
+  document.getElementById(id).innerHTML = items.map(([label, color, kind]) =>
+    `<span><i class="${kind || ''}" style="${kind === 'dash' ? `color:${color}` : `background:${color}`}"></i>${label}</span>`).join('');
+}
+function gridY() { return Plot.gridY({ stroke: css('--grid'), strokeOpacity: 1 }); }
+function gridX() { return Plot.gridX({ stroke: css('--grid'), strokeOpacity: 1 }); }
+function tipStyle() { return { fill: css('--surface'), stroke: css('--grid'), textPadding: 8 }; }
+
+function drawBoard(board, title) {
+  const cell = 8, w = 10 * cell, h = board.length * cell;
+  const ns = 'http://www.w3.org/2000/svg';
+  const fig = document.createElement('figure');
+  fig.className = 'board'; fig.style.margin = '0';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`); svg.setAttribute('width', '100%');
+  svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', title);
+  board.forEach((row, r) => [...row].forEach((ch, c) => {
+    const rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('x', c * cell + 0.5); rect.setAttribute('y', r * cell + 0.5);
+    rect.setAttribute('width', cell - 1); rect.setAttribute('height', cell - 1); rect.setAttribute('rx', 1);
+    rect.setAttribute('fill', ch === '.' ? css('--empty-cell') : pieceColor(ch));
+    svg.appendChild(rect);
+  }));
+  const cap = document.createElement('figcaption'); cap.textContent = title;
+  fig.append(svg, cap);
+  return fig;
+}
+
+// ---- sections ------------------------------------------------------------------
+function tiles() {
+  const m = Object.fromEntries(DATA.compare.models.map(d => [d.name, d]));
+  const base1 = m.baseline_single_v1, best = m.single_v4;
+  const latestRepair = DATA.repair.length ? DATA.repair[DATA.repair.length - 1] : null;
+  const rv = latestRepair && latestRepair.models.find(d => d.name === 'repair_v5');
+  const items = [
+    ['Original model', fmt(base1.mean), 'lines per game (mean of 50 held-out games)'],
+    ['Best model now', fmt(best.mean), `single_v4, ${Math.round(best.mean / base1.mean)}× the original`],
+    ['Reported by the old GA', '5,968', 'true mean of that model: ' + fmt(base1.mean)],
+    ['Best regime model', rv ? (rv.diff >= 0 ? '+' : '') + pct(rv.diff / latestRepair.models[0].mean) : 'n/a',
+      rv ? `vs single_v4, ${rv.significant ? 'significant' : 'not significant'} (${latestRepair.settings.games} games)` : ''],
+  ];
+  document.getElementById('tiles').innerHTML = items.map(([l, v, n]) =>
+    `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div><div class="note">${n}</div></div>`).join('');
+  document.getElementById('baseline-mean').textContent = fmt(base1.mean);
+}
+
+function weights() {
+  const rows = [];
+  for (const m of DATA.models) {
+    for (const rule of m.rules) {
+      const name = m.rules.length > 1 ? `${m.name} · ${rule.name}${rule.stat ? ` (${rule.stat} ${rule.op} ${rule.threshold})` : ''}` : m.name;
+      rows.push([name, m.weights[rule.name]]);
+    }
+  }
+  const head = '<tr><th>model</th>' + FEATURES.map(f => `<th>${f.replace('_', ' ')}</th>`).join('') + '</tr>';
+  const body = rows.map(([name, w]) => '<tr><td>' + name + '</td>' + FEATURES.map(f =>
+    w[f] ? `<td>${w[f].toFixed(3)}</td>` : '<td class="zero">–</td>').join('') + '</tr>').join('');
+  document.getElementById('weights').innerHTML = `<table class="weights">${head}${body}</table>`;
+}
+
+function noise() {
+  const rec = DATA.recordings.single_v4;
+  if (!rec) return;
+  const lines = rec.lines.filter(d => d > 0);
+  let el = document.getElementById('c-noise-hist');
+  mount('c-noise-hist', base(el, {
+    height: 240, x: { type: 'log', label: 'lines in the game →', tickFormat: '~s' }, y: { label: '↑ games', grid: false },
+    marks: [gridY(),
+      Plot.rectY(lines, Plot.binX({ y: 'count' }, { x: d => d, thresholds: d3.ticks(Math.log10(d3.min(lines)), Math.log10(d3.max(lines)), 28).map(t => 10 ** t),
+        fill: css('--s1'), inset: 1, rx: 2, tip: { ...tipStyle(), format: { x: d => fmt(d) } } })),
+      Plot.ruleX([d3.mean(lines)], { stroke: css('--ink'), strokeDasharray: '3,3' }),
+      Plot.text([d3.mean(lines)], { x: d => d, frameAnchor: 'top', dy: -18, dx: -4, textAnchor: 'end', text: d => `mean ${fmt(d)}`, fill: css('--ink') }),
+      Plot.ruleY([0], { stroke: css('--ink-3') })],
+  }));
+  const cv = d3.deviation(lines) / d3.mean(lines);
+  const ns = d3.range(1, 1001).filter(n => n < 20 || n % 5 === 0);
+  const se = ns.map(n => ({ n, se: cv / Math.sqrt(n) }));
+  el = document.getElementById('c-noise-se');
+  mount('c-noise-se', base(el, {
+    height: 240, x: { type: 'log', label: 'games per model →' }, y: { label: '↑ uncertainty of the mean', tickFormat: '.0%', domain: [0, 1] },
+    marks: [gridY(),
+      Plot.line(se, { x: 'n', y: 'se', stroke: css('--s1'), strokeWidth: 2 }),
+      Plot.dot([4, 8, 50, 1000].map(n => ({ n, se: cv / Math.sqrt(n) })), { x: 'n', y: 'se', fill: css('--s1'), r: 4, stroke: css('--surface'), strokeWidth: 2 }),
+      Plot.text([4, 8, 50].map(n => ({ n, se: cv / Math.sqrt(n) })), { x: 'n', y: 'se', text: d => `${d.n} games: ±${pct(d.se)}`, dy: -12, dx: 2, textAnchor: 'start', fill: css('--ink') }),
+      Plot.text([1000].map(n => ({ n, se: cv / Math.sqrt(n) })), { x: 'n', y: 'se', text: d => `${d.n} games: ±${pct(d.se)}`, dy: -12, dx: -2, textAnchor: 'end', fill: css('--ink') }),
+      Plot.ruleX(se, Plot.pointerX({ x: 'n', stroke: css('--ink-3') })),
+      Plot.tip(se, Plot.pointerX({ x: 'n', y: 'se', ...tipStyle(), title: d => `${d.n} games\n±${pct(d.se)} of the mean` }))],
+  }));
+}
+
+let currentRun = null;
+function runButtons() {
+  const box = document.getElementById('run-buttons');
+  if (!currentRun) currentRun = DATA.runs.find(r => r.label === 'v4 single')?.id || DATA.runs[0].id;
+  box.innerHTML = DATA.runs.map(r => `<button type="button" data-id="${r.id}" aria-pressed="${r.id === currentRun}">${r.label}</button>`).join('');
+  box.querySelectorAll('button').forEach(b => b.addEventListener('click', () => { currentRun = b.dataset.id; runButtons(); training(); }));
+}
+function training() {
+  const run = DATA.runs.find(r => r.id === currentRun);
+  const h = run.history;
+  document.getElementById('run-title').textContent = `${run.label}: ${run.story}`;
+  const capLines = run.cap * 0.4;
+  document.getElementById('run-caption').textContent =
+    `Population ${run.population}, ${run.games} games per individual per generation, ${h.length} generations, ` +
+    `cap ${fmt(run.cap)} pieces (≈ ${fmt(capLines)} lines). Features: ${run.features.join(', ')}.`;
+  const [c1, c2] = series();
+  legend('run-legend', [['leader (mean over all its games)', c1, 'line'], ['population mean', css('--ink-2'), 'dash'], ['best of generation', c2, 'dot']]);
+  const pts = h.flatMap(d => [{ g: d.g, v: d.best, k: 'best' }, { g: d.g, v: d.mean, k: 'mean' }].concat(d.leader != null ? [{ g: d.g, v: d.leader, k: 'leader' }] : []));
+  const maxV = d3.max(pts, d => d.v);
+  const el = document.getElementById('c-run');
+  const marks = [gridY(),
+    Plot.line(h, { x: 'g', y: 'mean', stroke: css('--ink-2'), strokeDasharray: '4,3', strokeWidth: 1.5 }),
+    Plot.dot(h, { x: 'g', y: 'best', fill: c2, r: 3 }),
+    Plot.line(h.filter(d => d.leader != null), { x: 'g', y: 'leader', stroke: c1, strokeWidth: 2.5 }),
+    Plot.ruleX(h, Plot.pointerX({ x: 'g', stroke: css('--ink-3') })),
+    Plot.tip(h, Plot.pointerX({ x: 'g', y: d => d.leader ?? d.best, ...tipStyle(), title: d =>
+      `generation ${d.g}\nleader ${d.leader != null ? fmt(d.leader) + ` (${d.leader_games} games)` : 'n/a'}\nbest ${fmt(d.best)}\nmean ${fmt(d.mean)}` }))];
+  if (capLines < maxV * 1.6) marks.push(
+    Plot.ruleY([capLines], { stroke: css('--critical'), strokeDasharray: '2,3' }),
+    Plot.text([capLines], { y: d => d, frameAnchor: 'right', dy: -8, text: () => 'piece cap', fill: css('--critical') }));
+  mount('c-run', base(el, { height: 300, x: { label: 'generation →' }, y: { label: '↑ lines per game', tickFormat: '~s', zero: true }, marks }));
+
+  const thr = h.flatMap(d => Object.entries(d.thresholds).map(([k, v]) => ({ g: d.g, rule: k.replace('.threshold', ''), v })));
+  const thrEl = document.getElementById('c-run-thr');
+  if (thr.length) {
+    const rules = [...new Set(thr.map(d => d.rule))];
+    mount('c-run-thr', base(thrEl, {
+      height: 170, marginTop: 24, x: { label: 'generation →' }, y: { label: '↑ switch threshold', zero: true },
+      color: { domain: rules, range: series().slice(2) },
+      marks: [gridY(), Plot.line(thr, { x: 'g', y: 'v', stroke: 'rule', strokeWidth: 2, curve: 'step' }),
+        Plot.text(thr.filter(d => d.g === h[h.length - 1].g), { x: 'g', y: 'v', text: d => `${d.rule} (${d.rule === 'repair' ? 'holes' : 'height'})`, dx: -4, dy: -9, textAnchor: 'end', fill: css('--ink') }),
+        Plot.tip(thr, Plot.pointer({ x: 'g', y: 'v', ...tipStyle(), title: d => `${d.rule}: ${d.v} at generation ${d.g}` }))],
+    }));
+  } else thrEl.replaceChildren();
+  table('t-run', [['gen', d => d.g], ['leader', d => d.leader != null ? fmt(d.leader) : ''], ['games', d => d.leader_games], ['best', d => fmt(d.best)], ['mean', d => fmt(d.mean)]], h);
+}
+
+function addedChart(id, model, highlight) {
+  const a = DATA.analysis[model];
+  if (!a) return;
+  const rows = a.features.filter(d => d.added != null && LABELS[d.feature]).sort((x, y) => y.added - x.added);
+  const el = document.getElementById(id);
+  const color = d => highlight.includes(d.feature) ? css('--s1') : css('--muted');
+  mount(id, base(el, {
+    height: 26 * rows.length + 60, marginLeft: 170,
+    x: { domain: [Math.min(-0.06, d3.min(rows, d => d.added) - 0.03), 0.17], label: 'added information (partial correlation) →', grid: true },
+    y: { domain: rows.map(d => LABELS[d.feature]), label: null, type: 'point', padding: 0.6 },
+    marks: [gridX(), Plot.ruleX([0], { stroke: css('--ink-3') }),
+      Plot.ruleY(rows, { y: d => LABELS[d.feature], x1: 0, x2: 'added', stroke: color, strokeWidth: 12 }),
+      Plot.tip(rows, Plot.pointerY({ y: d => LABELS[d.feature], x: 'added', ...tipStyle(), title: d => `${LABELS[d.feature]}\nadded information ${d.added.toFixed(3)}\nwarning power (AUC) ${d.auc.toFixed(2)}` })),
+      Plot.text(rows.filter(d => d.added >= 0), { y: d => LABELS[d.feature], x: 'added', text: d => '+' + d.added.toFixed(2), dx: 6, textAnchor: 'start', fill: css('--ink-2') }),
+      Plot.text(rows.filter(d => d.added < 0), { y: d => LABELS[d.feature], x: 'added', text: d => d.added.toFixed(2).replace('-', '−'), dx: -6, textAnchor: 'end', fill: css('--ink-2') })],
+  }));
+}
+
+function discovery() {
+  legend('piece-legend', [...PIECES].map(p => [p, pieceColor(p)]).concat([['unknown (C engine)', css('--muted')]]));
+  const rb = DATA.recordings.baseline_single_v1;
+  if (rb) {
+    document.getElementById('boards-baseline').replaceChildren(...rb.boards.map(b => drawBoard(b.board, `${fmt(b.lines)} lines`)));
+    const exp = rb.i_drought.map(d => ({ pieces: d.pieces, games: rb.dead * (1 / 7) * (6 / 7) ** d.pieces }));
+    let el = document.getElementById('c-drought');
+    mount('c-drought', base(el, {
+      height: 260, x: { label: 'pieces since the last I-piece →', tickFormat: d => d === 40 ? '40+' : d }, y: { label: '↑ games', grid: false },
+      marks: [gridY(),
+        Plot.rectY(rb.i_drought, { x1: d => d.pieces, x2: d => d.pieces + 1, y: 'games', fill: css('--s1'), inset: 1, rx: 2,
+          tip: { ...tipStyle(), title: d => `${d.pieces === 40 ? '40 or more' : d.pieces} pieces: ${d.games} games\nchance: ${exp[d.pieces].games.toFixed(1)}` } }),
+        Plot.line(exp, { x: d => d.pieces + 0.5, y: 'games', stroke: css('--ink'), strokeWidth: 1.5 }),
+        Plot.text([exp[3]], { x: d => d.pieces + 1, y: 'games', text: () => 'expected by chance', dx: 6, textAnchor: 'start', fill: css('--ink') }),
+        Plot.ruleY([0], { stroke: css('--ink-3') })],
+    }));
+    const cols = rb.hole_columns.map((v, c) => ({ col: c + 1, v }));
+    el = document.getElementById('c-holecols');
+    mount('c-holecols', base(el, {
+      height: 230, x: { label: 'column', type: 'band' }, y: { label: '↑ share of holes', tickFormat: '.0%', grid: false },
+      marks: [gridY(),
+        Plot.barY(cols, { x: 'col', y: 'v', fill: d => d.col === 1 || d.col === 10 ? css('--s2') : css('--s1'), inset: 3, rx: 3,
+          tip: { ...tipStyle(), format: { y: '.1%' } } }),
+        Plot.ruleY([0.1], { stroke: css('--ink'), strokeDasharray: '3,3' }),
+        Plot.ruleY([0], { stroke: css('--ink-3') })],
+    }));
+  }
+  addedChart('c-added-baseline', 'baseline_single_v1', ['hole_depth', 'cum_wells']);
+}
+
+function results() {
+  const ms = DATA.compare.models;
+  const order = [...ms].sort((a, b) => a.mean - b.mean).map(d => d.name);
+  const dots = ms.flatMap(m => m.lines.map(v => ({ model: m.name, lines: Math.max(v, 1) })));
+  const el = document.getElementById('c-models');
+  mount('c-models', base(el, {
+    height: 60 * ms.length + 50, marginLeft: 140,
+    x: { type: 'log', label: 'lines per game →', tickFormat: '~s', grid: true },
+    y: { domain: order, label: null },
+    marks: [gridX(),
+      Plot.dot(dots, { x: 'lines', y: 'model', fill: css('--s1'), fillOpacity: 0.35, r: 2.5 }),
+      Plot.ruleY(ms, { y: 'name', x1: d => d.ci[0], x2: d => d.ci[1], stroke: css('--ink'), strokeWidth: 3, strokeLinecap: 'round' }),
+      Plot.tickX(ms, { y: 'name', x: 'mean', stroke: css('--ink'), strokeWidth: 2.5 }),
+      Plot.text(ms, { y: 'name', x: 'mean', text: d => `mean ${d.mean < 1e4 ? fmt(d.mean) : d3.format('.3s')(d.mean)}`, textAnchor: 'middle', fill: css('--ink'), dy: -17 }),
+      Plot.tip(ms, Plot.pointerY({ y: 'name', x: 'mean', ...tipStyle(), title: d =>
+        `${d.name}\nmean ${fmt(d.mean)} (95%: ${fmt(d.ci[0])}–${fmt(d.ci[1])})\nmedian ${fmt(d.median)}${d.capped ? `\n${d.capped} games hit the cap` : ''}` }))],
+  }));
+  table('t-models', [['model', d => d.name], ['mean', d => fmt(d.mean)], ['95% CI', d => `${fmt(d.ci[0])}–${fmt(d.ci[1])}`], ['median', d => fmt(d.median)],
+    ['vs ' + DATA.compare.reference, d => d.diff == null ? 'reference' : `${d.diff >= 0 ? '+' : ''}${fmt(d.diff)}${d.significant ? ' *' : ''}`]], [...ms].sort((a, b) => b.mean - a.mean));
+
+  diffChart('c-ablation', DATA.ablation_v4, d => d.name.replace('no_', 'without ').replace('_', ' '));
+  if (DATA.lines_ablation) {
+    const la = DATA.lines_ablation.models;
+    const byName = Object.fromEntries(la.map(d => [d.name, d]));
+    const pairs = ['single_v2', 'regime_v2', 'regime_v3'].filter(n => byName[n] && byName[n + '_nolines']).map(n => {
+      const a = byName[n], b = byName[n + '_nolines'];
+      const diffs = b.lines.map((v, i) => v - a.lines[i]);
+      const rand = d3.randomLcg(1);   // seeded, so the interval is stable between renders
+      const boot = d3.range(2000).map(() => d3.mean(diffs.map(() => diffs[Math.floor(rand() * diffs.length)])));
+      return { name: n, diff: d3.mean(diffs) / a.mean, lo: d3.quantile(boot.sort(d3.ascending), 0.025) / a.mean, hi: d3.quantile(boot, 0.975) / a.mean };
+    });
+    diffRows('c-lines-ablation', pairs, d => `${d.name} without lines`);
+  }
+}
+function diffChart(id, comp, label) {
+  const ref = comp.models[0];
+  const rows = comp.models.slice(1).map(d => ({ name: d.name, diff: d.diff / ref.mean, lo: d.diff_ci[0] / ref.mean, hi: d.diff_ci[1] / ref.mean, sig: d.significant, mean: d.mean }));
+  diffRows(id, rows, label);
+}
+function diffRows(id, rows, label) {
+  rows.sort((a, b) => b.diff - a.diff);
+  const el = document.getElementById(id);
+  const lo = Math.min(-1, d3.min(rows, d => d.lo)), hi = Math.max(0.3, d3.max(rows, d => d.hi));
+  mount(id, base(el, {
+    height: 42 * rows.length + 60, marginLeft: 160,
+    x: { domain: [lo * 1.05, hi * 1.1], tickFormat: '+.0%', label: 'change in mean lines (95% interval) →', grid: true },
+    y: { domain: rows.map(label), label: null },
+    marks: [gridX(), Plot.ruleX([0], { stroke: css('--ink') }),
+      Plot.ruleY(rows, { y: label, x1: 'lo', x2: 'hi', stroke: d => d.hi < 0 || d.lo > 0 ? css('--s2') : css('--muted'), strokeWidth: 4, strokeLinecap: 'round' }),
+      Plot.dot(rows, { y: label, x: 'diff', fill: css('--ink'), r: 4.5, stroke: css('--surface'), strokeWidth: 2 }),
+      Plot.text(rows, { y: label, x: 'hi', text: d => d3.format('+.0%')(d.diff), dx: 8, textAnchor: 'start', fill: css('--ink') }),
+      Plot.tip(rows, Plot.pointerY({ y: label, x: 'diff', ...tipStyle(), title: d => `${label(d)}\n${d3.format('+.1%')(d.diff)} (95%: ${d3.format('+.0%')(d.lo)} to ${d3.format('+.0%')(d.hi)})` }))],
+  }));
+}
+
+function regimes() {
+  const r = DATA.recordings.regime_v4;
+  if (r && r.regime_runup) {
+    const names = [...new Set(r.regime_runup.map(d => d.regime))];
+    const colors = { repair: css('--s1'), danger: css('--s2'), normal: css('--s3') };
+    legend('regime-legend', names.map(n => [n === 'repair' ? 'repair (holes ≥ 7)' : n === 'danger' ? 'danger (height ≥ 15)' : 'normal', colors[n], 'line']));
+    const el = document.getElementById('c-regime-runup');
+    mount('c-regime-runup', base(el, {
+      height: 260, x: { label: 'pieces before game over →' }, y: { label: '↑ share of games', tickFormat: '.0%', domain: [0, 1] },
+      color: { domain: names, range: names.map(n => colors[n]) },
+      marks: [gridY(), Plot.line(r.regime_runup, { x: 'before', y: 'share', stroke: 'regime', strokeWidth: 2 }),
+        Plot.ruleX(r.regime_runup, Plot.pointerX({ x: 'before', stroke: css('--ink-3') })),
+        Plot.tip(r.regime_runup, Plot.pointer({ x: 'before', y: 'share', ...tipStyle(), title: d => `${-d.before} pieces before death\n${d.regime}: ${pct(d.share)}` }))],
+    }));
+  }
+  const comp = DATA.repair.length ? DATA.repair[DATA.repair.length - 1] : null;
+  if (comp) {
+    const [ref, rv] = comp.models;
+    document.getElementById('repair-caption').textContent =
+      `Normal weights frozen at single_v4; the GA only evolved the repair weights and switch point. ${comp.settings.games} paired held-out games ` +
+      `(cap ${fmt(comp.settings.max_pieces)} pieces). Bar: 95% interval of the difference.`;
+    diffChart('c-repair', comp, d => d.name);
+    table('t-repair', [['model', d => d.name], ['mean', d => fmt(d.mean)], ['median', d => fmt(d.median)], ['95% CI', d => `${fmt(d.ci[0])}–${fmt(d.ci[1])}`],
+      ['wins/losses', d => d.wins != null ? `${d.wins}/${d.losses}` : ''], ['capped', d => d.capped]], comp.models);
+  }
+}
+
+function limits() {
+  addedChart('c-added-v4', 'single_v4', []);
+  if (DATA.crisis) {
+    const el = document.getElementById('c-crisis');
+    mount('c-crisis', base(el, {
+      height: 260, x: { label: 'pieces before the recorded death →', reverse: true }, y: { label: '↑ recovers', tickFormat: '.0%', domain: [0, 1] },
+      marks: [gridY(), Plot.line(DATA.crisis, { x: 'before', y: 'rate', stroke: css('--s1'), strokeWidth: 2 }),
+        Plot.dot(DATA.crisis, { x: 'before', y: 'rate', fill: css('--s1'), r: 4, stroke: css('--surface'), strokeWidth: 2,
+          tip: { ...tipStyle(), title: d => `${d.before} pieces before death\nrecovers ${pct(d.rate)} (${d.n} episodes)` } }),
+        Plot.text(DATA.crisis.filter(d => [10, 30, 100].includes(d.before)), { x: 'before', y: 'rate', text: d => pct(d.rate), dy: -12, fill: css('--ink') })],
+    }));
+  }
+  const a = DATA.analysis.single_v4;
+  if (a) {
+    const rows = [...PIECES].map(p => ({ piece: p, rate: a.hole_rate_by_piece[p] }));
+    const el = document.getElementById('c-hole-rate');
+    mount('c-hole-rate', base(el, {
+      height: 240, x: { label: 'piece', domain: [...PIECES] }, y: { label: '↑ moves that create a hole', tickFormat: '.0%', grid: false },
+      marks: [gridY(), Plot.barY(rows, { x: 'piece', y: 'rate', fill: d => pieceColor(d.piece), inset: 4, rx: 3, tip: { ...tipStyle(), format: { y: '.1%' } } }),
+        Plot.text(rows, { x: 'piece', y: 'rate', text: d => d3.format('.0%')(d.rate), dy: -8, fill: css('--ink-2') }),
+        Plot.ruleY([0], { stroke: css('--ink-3') })],
+    }));
+  }
+  const r4 = DATA.recordings.single_v4;
+  if (r4) document.getElementById('boards-v4').replaceChildren(...r4.boards.map(b => drawBoard(b.board, `${d3.format('.3s')(b.lines)} lines`)));
+}
+
+function renderAll() {
+  tiles(); weights(); noise(); runButtons(); training(); discovery(); results(); regimes(); limits();
+  document.getElementById('footer').innerHTML =
+    `Built ${DATA.built} from the experiment logs with <code>experiments/build_site.py</code>. ` +
+    `Code and method: <a href="https://github.com/JCA374/tetris-heuristics">github.com/JCA374/tetris-heuristics</a>.`;
+}
+renderAll();
+let resizeTimer;
+addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(renderAll, 200); });
+</script>
+</body>
+</html>

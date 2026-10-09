@@ -20,6 +20,9 @@ python training/train.py --model regime --quick           # smoke test
 python experiments/compare.py models/A.json models/B.json --games 50
 python experiments/record_games.py models/X.json --games 500         # board logs
 python experiments/analyze_games.py runs/games/X.jsonl.gz            # feature research report
+python experiments/make_crisis_states.py runs/games/X.jsonl.gz       # crisis start states
+python training/train.py --model repair --freeze normal --init models/X.json --crisis runs/crisis/X.json
+python experiments/build_site.py [--reuse]                           # project page docs/index.html
 ```
 
 ## Architecture
@@ -37,7 +40,7 @@ python experiments/analyze_games.py runs/games/X.jsonl.gz            # feature r
   **pre-move** board, then used for all candidates and lookahead.
   `Policy.single(w)` is a one-rule policy. `TEMPLATES` defines the trainable rule sets.
 - `tetris/play.py` `play_game(policy, seed, max_pieces, lookahead, randomizer, recorder)`.
-  Seed ranges: test 0…, validation 1M…, train 2M…, analysis 3M…. Never mix them.
+  Seed ranges: test 0…, validation 1M…, train 2M…, analysis 3M…, crisis 4M… (train) / 5M… (validation), site crisis chart 6M…. Never mix them.
 - `tetris/fastcore.c` (+ `fastcore.py` ctypes bridge): C port of drop, line clear,
   `board_stats`/`evaluate`, regime selection and move search. `play_game` uses it
   automatically unless `on_move`/`recorder` hooks are given (`engine='python'` forces
@@ -69,4 +72,7 @@ python experiments/analyze_games.py runs/games/X.jsonl.gz            # feature r
   `fastcore.py` and `select_regime` in `fastcore.c`.
 - Strong models play hundreds of thousands of lines per game; always pass a
   `--max-pieces` cap and watch for capped games (they hide differences).
+- After new results, update `experiments/build_site.py` (RUNS / compare paths) and rebuild
+  `docs/index.html`; the page is the published record of the git-ignored runs/results.
+  Charts follow the dataviz palette and docs/ANALYSIS_METHOD.md style.
 - `runs/`, `results/` and `logs/` are git-ignored. Keep models worth keeping in `models/`.

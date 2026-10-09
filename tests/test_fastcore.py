@@ -61,3 +61,41 @@ def test_record_game_matches_python_recorder():
                      [row.translate(letters) for row in r['board']]) for r in ra['recent']] == \
                    [(r['n'], r['piece'], r['rotation'], r['col'], r['regime'], r['cleared'],
                      [row.translate(letters) for row in r['board']]) for r in rb['recent']]
+
+
+def test_play_from_recovers_and_matches_python():
+    """A crisis episode from a given board plays the same moves as the Python engine."""
+    from tetris.game import TetrisGame
+    from tetris.play import PieceStream
+    board = ['.' * 10] * 12 + ['XXXXXXXXX.'] * 2 + ['X.XXXXXXXX'] * 6
+    policy = Policy.single(SIX)
+    r = fastcore.play_from(policy, board, seed=9, max_pieces=1000)
+
+    game = TetrisGame()
+    game.board = [[('X' if ch != '.' else 0) for ch in row] for row in board]
+    stream = PieceStream('random', 9)
+    from tetris.features import regime_stats
+    recovered = False
+    while not game.game_over and game.pieces_placed < 1000:
+        move = policy.get_best_move(game, stream.current)
+        if move is None:
+            break
+        game.place_piece(stream.current, *move)
+        stream.advance()
+        s = regime_stats(game)
+        if s['holes'] == 0 and s['max_height'] <= 8:
+            recovered = True
+            break
+    assert (r['recovered'], r['pieces'], r['lines']) == (recovered, game.pieces_placed, game.lines_cleared)
+    assert fastcore.play_from(policy, ['.' * 10] * 20, seed=1)['pieces'] == 1   # already healthy
+
+
+def test_crisis_ga_smoke():
+    from training.ga import GeneticAlgorithm
+    board = fastcore.board_rows(['.' * 10] * 14 + ['X.XXXXXXXX'] * 6)
+    crisis = {'train': [{'rows': board}] * 5, 'validation': [{'rows': board}] * 3}
+    ga = GeneticAlgorithm('repair', population_size=6, games=4, max_pieces=200, init_policy=Policy.single(SIX),
+                          rng_seed=0, freeze=['normal'], crisis=crisis, candidates=2)
+    results = ga.play_many(ga.initial_population(), ga.train_episodes(1))
+    assert all(r['fitness'] in (0.0, 1.0) for res in results for r in res)
+    assert len(ga.validation_episodes()) == 3

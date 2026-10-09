@@ -88,11 +88,14 @@ def plot_loop(find_runs, interval):
         runs = find_runs()
         ax_fit.clear(); ax_thr.clear(); ax_w.clear()
         bars = []
+        fitness_label = 'lines cleared'
         for run_dir in runs:
             data = load(run_dir)
             if not data or not data['history']:
                 continue
             model = data['template']
+            if data.get('fitness', 'lines') != 'lines':
+                fitness_label = data['fitness']
             color = COLORS.get(model)
             hist = data['history']
             gens = [h['generation'] for h in hist]
@@ -113,7 +116,7 @@ def plot_loop(find_runs, interval):
                 bars.append((f'{model} {r}' if model != 'single' else 'single', [g.get(f'{r}.{f}', 0.0) for f in FEATURES], color, HATCHES.get(r, '')))
 
         ax_fit.set_title('Fitness (dots = best individual of each generation, noisy)')
-        ax_fit.set_xlabel('generation'); ax_fit.set_ylabel('lines cleared')
+        ax_fit.set_xlabel('generation'); ax_fit.set_ylabel(fitness_label)
         ax_fit.grid(alpha=0.3)
         ax_fit.xaxis.get_major_locator().set_params(integer=True)
         ax_thr.xaxis.get_major_locator().set_params(integer=True)

@@ -37,6 +37,32 @@ python training/train.py --model single --features height,lines,holes,bumpiness 
 python experiments/compare.py models/baseline_single_v1.json models/single_v2.json models/regime_v2.json --games 50
 ```
 
+## Crisis training (repair regime)
+
+```bash
+python experiments/make_crisis_states.py runs/games/single_v4.jsonl.gz      # boards 10-40 pieces before death
+python training/train.py --model repair --freeze normal --init models/single_v4.json \
+    --features height,holes,bumpiness,wells,hole_depth \
+    --crisis runs/crisis/single_v4.json --games 400 --max-pieces 1000 --out models/repair_crisis.json
+```
+
+Each episode starts from a recorded crisis board with fresh pieces, and fitness is
+the share of episodes that get back to a clean board (no holes, height ≤ 8). It is
+hundreds of times cheaper than full games. Always confirm the result with
+`compare.py` on full games.
+
+## Project page
+
+`docs/index.html` is a self-contained page with the training runs, the failure
+analysis that found the new features, all comparisons and the open questions.
+Rebuild it after new results (`--reuse` only re-renders the template):
+
+```bash
+python experiments/build_site.py
+```
+
+To publish it, enable GitHub Pages for the branch with the `/docs` folder.
+
 ## Analyse games for new features
 
 ```bash
@@ -107,7 +133,8 @@ tetris/            engine and AI
   play.py          play_game(policy, seed, ...), GameRecorder, seed ranges
   fastcore.c/.py   C port of the hot path (drop, features, regimes, move search) + ctypes bridge
 training/          ga.py (generic named-gene GA), train.py (CLI), watch.py (live plot)
-experiments/       compare.py (paired benchmark), record_games.py + analyze_games.py
+experiments/       compare.py (paired benchmark), record_games.py + analyze_games.py,
+                   make_crisis_states.py, build_site.py + site_template.html (project page)
 models/            saved models (JSON)
 demo.py            terminal demo     demo_pygame.py  graphical demo
 docs/              HEURISTICS.md (how it works) + earlier research notes

@@ -7,6 +7,7 @@ they are finally tested on:
     VALIDATION_SEEDS  1_000_000 ..    final model pick at the end of training
     TRAIN_SEEDS       2_000_000 ..    GA fitness (new block every generation)
     ANALYSIS_SEEDS    3_000_000 ..    experiments/record_games.py (board logs for feature research)
+    CRISIS seeds      4_000_000 ..    pieces after crisis start states (train), 5_000_000.. (validation)
 """
 
 from collections import deque
@@ -19,6 +20,8 @@ TEST_SEED_BASE = 0
 VALIDATION_SEED_BASE = 1_000_000
 TRAIN_SEED_BASE = 2_000_000
 ANALYSIS_SEED_BASE = 3_000_000
+CRISIS_TRAIN_SEED_BASE = 4_000_000      # pieces after a crisis start state (train.py --crisis)
+CRISIS_VALIDATION_SEED_BASE = 5_000_000
 
 
 def encode_board(game):

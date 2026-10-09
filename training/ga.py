@@ -29,7 +29,9 @@ from datetime import datetime
 
 from tetris.features import FEATURES
 from tetris.policy import Policy, TEMPLATES
-from tetris.play import play_game, TRAIN_SEED_BASE, VALIDATION_SEED_BASE
+from tetris import fastcore
+from tetris.play import (play_game, TRAIN_SEED_BASE, VALIDATION_SEED_BASE,
+                         CRISIS_TRAIN_SEED_BASE, CRISIS_VALIDATION_SEED_BASE)
 
 # Weights are scale-invariant, so only the ratios matter; bounds are generous.
 WEIGHT_BOUNDS = {
@@ -116,10 +118,18 @@ def genome_key(genome):
 # --- worker -------------------------------------------------------------------
 
 def _play_task(args):
-    index, template, genome, seed, max_pieces, lookahead, randomizer = args
+    """One episode: a seed (full game, fitness = lines) or (seed, board) (crisis, fitness = recovered)."""
+    index, template, genome, episode, max_pieces, lookahead, randomizer = args
     policy = genome_to_policy(template, genome)
-    result = play_game(policy, seed=seed, max_pieces=max_pieces,
-                       lookahead=lookahead, randomizer=randomizer)
+    if isinstance(episode, tuple):
+        seed, rows = episode
+        result = fastcore.play_from(policy, rows, seed=seed, max_pieces=max_pieces,
+                                    lookahead=lookahead, randomizer=randomizer)
+        result['fitness'] = float(result['recovered'])
+    else:
+        result = play_game(policy, seed=episode, max_pieces=max_pieces,
+                           lookahead=lookahead, randomizer=randomizer)
+        result['fitness'] = result['lines']
     return index, result
 
 
@@ -129,8 +139,14 @@ class GeneticAlgorithm:
     def __init__(self, template_name='single', population_size=50, games=5,
                  max_pieces=20000, lookahead=False, randomizer='random', workers=1,
                  init_policy=None, rng_seed=None, validation_games=30, candidates=5,
-                 features=FEATURES, freeze=()):
-        """freeze: regime names whose weights stay fixed at the init model's values."""
+                 features=FEATURES, freeze=(), crisis=None):
+        """
+        freeze: regime names whose weights stay fixed at the init model's values.
+        crisis: start states from experiments/make_crisis_states.py ({'train': [...],
+            'validation': [...]}). Then every episode starts from a sampled state with fresh
+            pieces, `games` = episodes per genome per generation, `max_pieces` = episode
+            length, and fitness = share of episodes that recover (no holes, max height <= 8).
+        """
         self.template_name = template_name
         self.template = TEMPLATES[template_name]
         self.features = tuple(features)
@@ -145,6 +161,9 @@ class GeneticAlgorithm:
         self.validation_games = validation_games
         self.candidates = candidates
         self.rng = random.Random(rng_seed)
+        self.crisis = crisis
+        if crisis is not None and not fastcore.available():
+            raise RuntimeError('crisis training needs the C core: ' + str(fastcore.build_error()))
         self.frozen = {}              # gene -> fixed value
         if freeze:
             if init_policy is None:
@@ -161,7 +180,7 @@ class GeneticAlgorithm:
         self.elite_size = 5
         self.tournament_size = 5
 
-        self.archive = {}             # genome_key -> {'genome', 'lines': [...]}
+        self.archive = {}             # genome_key -> {'genome', 'scores': [fitness per episode]}
         self.history = []
         self.pool = None
         self.run_dir = None
@@ -226,7 +245,8 @@ class GeneticAlgorithm:
         if self.workers > 1:
             if self.pool is None:
                 self.pool = mp.Pool(self.workers)
-            iterator = self.pool.imap_unordered(_play_task, tasks)
+            iterator = self.pool.imap_unordered(_play_task, tasks,
+                                                chunksize=max(1, len(tasks) // (self.workers * 16)))
         else:
             iterator = map(_play_task, tasks)
         for index, result in iterator:
@@ -234,13 +254,29 @@ class GeneticAlgorithm:
         return results
 
     def record(self, genome, results):
-        entry = self.archive.setdefault(genome_key(genome), {'genome': dict(genome), 'lines': []})
-        entry['lines'].extend(r['lines'] for r in results)
-        return statistics.mean(entry['lines'])
+        entry = self.archive.setdefault(genome_key(genome), {'genome': dict(genome), 'scores': []})
+        entry['scores'].extend(r['fitness'] for r in results)
+        return statistics.mean(entry['scores'])
 
     def archive_best(self, min_games):
-        entries = [e for e in self.archive.values() if len(e['lines']) >= min_games]
-        return sorted(entries, key=lambda e: statistics.mean(e['lines']), reverse=True)
+        entries = [e for e in self.archive.values() if len(e['scores']) >= min_games]
+        return sorted(entries, key=lambda e: statistics.mean(e['scores']), reverse=True)
+
+    def fmt(self, value):
+        return f'{value:6.1%}' if self.crisis is not None else f'{value:7.0f}'
+
+    def train_episodes(self, gen):
+        if self.crisis is None:
+            return [TRAIN_SEED_BASE + (gen - 1) * self.games + i for i in range(self.games)]
+        states = self.crisis['train']
+        rng = random.Random(gen)            # same states for every genome in a generation
+        return [(CRISIS_TRAIN_SEED_BASE + (gen - 1) * self.games + i, states[rng.randrange(len(states))]['rows'])
+                for i in range(self.games)]
+
+    def validation_episodes(self):
+        if self.crisis is None:
+            return [VALIDATION_SEED_BASE + i for i in range(self.validation_games)]
+        return [(CRISIS_VALIDATION_SEED_BASE + i, s['rows']) for i, s in enumerate(self.crisis['validation'])]
 
     # -- main loop --------------------------------------------------------------
 
@@ -260,9 +296,8 @@ class GeneticAlgorithm:
         try:
             for gen in range(1, generations + 1):
                 gen_start = time.time()
-                seeds = [TRAIN_SEED_BASE + (gen - 1) * self.games + i for i in range(self.games)]
-                results = self.play_many(population, seeds)
-                fitnesses = [statistics.mean(r['lines'] for r in res) for res in results]
+                results = self.play_many(population, self.train_episodes(gen))
+                fitnesses = [statistics.mean(r['fitness'] for r in res) for res in results]
                 # Select on the archive mean over *all* games a genome has played, not just this
                 # generation's: lucky genomes keep getting replayed (elites) until they regress.
                 selection = [self.record(genome, res) for genome, res in zip(population, results)]
@@ -276,8 +311,8 @@ class GeneticAlgorithm:
                     'mean': statistics.mean(fitnesses),
                     'median': statistics.median(fitnesses),
                     'best_genome': population[best_i],
-                    'leader_mean': statistics.mean(leader['lines']) if leader else None,
-                    'leader_games': len(leader['lines']) if leader else 0,
+                    'leader_mean': statistics.mean(leader['scores']) if leader else None,
+                    'leader_games': len(leader['scores']) if leader else 0,
                     'leader_genome': leader['genome'] if leader else None,
                     'seconds': time.time() - gen_start,
                 }
@@ -285,10 +320,10 @@ class GeneticAlgorithm:
                 self.save_checkpoint(population, fitnesses)
 
                 if verbose:
-                    lead = (f"leader {entry['leader_mean']:.0f} over {entry['leader_games']} games"
+                    lead = (f"leader {self.fmt(entry['leader_mean'])} over {entry['leader_games']} games"
                             if leader else "leader n/a")
-                    print(f"gen {gen:3d}/{generations}  best {entry['best']:7.0f}  "
-                          f"mean {entry['mean']:7.0f}  {lead}  ({entry['seconds']:.0f}s)")
+                    print(f"gen {gen:3d}/{generations}  best {self.fmt(entry['best'])}  "
+                          f"mean {self.fmt(entry['mean'])}  {lead}  ({entry['seconds']:.0f}s)")
                     if self.template_name != 'single':
                         g = leader['genome'] if leader else population[best_i]
                         th = '  '.join(f"{k}={v}" for k, v in g.items() if k.endswith('.threshold'))
@@ -324,8 +359,9 @@ class GeneticAlgorithm:
         if plot:
             self.save_plot()
         if verbose:
-            print(f"\nFinal model ({policy.meta['validation_mean']:.0f} lines mean on "
-                  f"{self.validation_games} validation games):")
+            print(f"\nFinal model ({self.fmt(policy.meta['validation_mean']).strip()} "
+                  f"{'recovery rate' if self.crisis is not None else 'lines mean'} on "
+                  f"{policy.meta['validation_games']} validation episodes):")
             print(policy.describe())
             print(f"Saved: {out_path or os.path.join(self.run_dir, 'model.json')}")
         return policy
@@ -342,22 +378,23 @@ class GeneticAlgorithm:
                 if len(pool) >= self.candidates:
                     break
         genomes = [e['genome'] for e in pool]
-        seeds = [VALIDATION_SEED_BASE + i for i in range(self.validation_games)]
+        seeds = self.validation_episodes()
         if verbose:
-            print(f"\nValidating {len(genomes)} candidates on {len(seeds)} validation seeds...")
+            print(f"\nValidating {len(genomes)} candidates on {len(seeds)} validation episodes...")
         results = self.play_many(genomes, seeds)
-        scores = [statistics.mean(r['lines'] for r in res) for res in results]
+        scores = [statistics.mean(r['fitness'] for r in res) for res in results]
         best = max(range(len(genomes)), key=lambda i: scores[i])
         if verbose:
             for i, (e, s) in enumerate(zip(pool, scores)):
                 mark = '*' if i == best else ' '
-                print(f"  {mark} candidate {i + 1}: train {statistics.mean(e['lines']):7.0f} "
-                      f"({len(e['lines'])} games)  validation {s:7.0f}")
+                print(f"  {mark} candidate {i + 1}: train {self.fmt(statistics.mean(e['scores']))} "
+                      f"({len(e['scores'])} games)  validation {self.fmt(s)}")
         return genome_to_policy(self.template, genomes[best], meta={
             'validation_mean': scores[best],
             'validation_games': len(seeds),
-            'train_mean': statistics.mean(pool[best]['lines']),
-            'train_games': len(pool[best]['lines']),
+            'train_mean': statistics.mean(pool[best]['scores']),
+            'train_games': len(pool[best]['scores']),
+            'fitness': 'crisis recovery rate' if self.crisis is not None else 'lines',
         })
 
     # -- output -------------------------------------------------------------------
@@ -367,6 +404,9 @@ class GeneticAlgorithm:
             'template': self.template_name,
             'features': list(self.features),
             'frozen': sorted(self.frozen),
+            'fitness': 'crisis recovery rate' if self.crisis is not None else 'lines',
+            'crisis_states': ({k: len(self.crisis[k]) for k in ('train', 'validation')}
+                              if self.crisis is not None else None),
             'parameters': {
                 'population_size': self.population_size, 'games': self.games,
                 'max_pieces': self.max_pieces, 'lookahead': self.lookahead,
