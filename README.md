@@ -13,7 +13,7 @@ beat the single model (see Results). The code still loads and plays those
 models, but new work targets the single model.
 
 Project page with all charts: `docs/index.html` (GitHub Pages:
-https://jca374.github.io/tetris-heuristics/ once enabled).
+https://jca374.github.io/tetris-heuristics/, built from `/docs` on this branch).
 
 No dependencies are needed for the core, training or the terminal demo.
 Games run in a small C core (`tetris/fastcore.c`, compiled automatically with
