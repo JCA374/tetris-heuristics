@@ -5,10 +5,15 @@ Tetris AI with Pygame Graphics
 Connects the AI to a real Tetris game with proper graphics, animations, and colors.
 Requires: pip install pygame
 
-Keys: UP/+ faster, DOWN/- slower, M max speed, SPACE pause, Q quit.
+Keys: UP/+ faster, DOWN/- slower, M max speed, A auto slow-down on/off, SPACE pause, Q quit.
 Up to 100 moves/s the Python engine plays (cells keep their piece colours).
 Faster than that the C core plays the same moves (bit-identical) far quicker,
 but it does not track piece letters, so cells placed there are drawn gray.
+
+Auto slow-down (A toggles): when the board reaches --slow-at holes (default 14;
+about 1 in 6 such crises ends the game) the speed drops to --normal-speed so you
+can watch the spiral, and returns to the previous speed once holes are below
+--resume-below again (or a new game starts).
 The window opens on the left half of the screen (--dock right|none to change)
 and can be resized; the picture scales to fit.
 """
@@ -20,6 +25,7 @@ import os
 import time
 
 from tetris import TetrisGame, Policy, fastcore
+from tetris.features import board_stats
 from tetris.pieces import make_generator
 from demo import default_model
 
@@ -61,7 +67,7 @@ STATS_Y = PREVIEW_Y + 370
 
 # Window size
 WINDOW_WIDTH = 750
-WINDOW_HEIGHT = 720
+WINDOW_HEIGHT = 840
 
 # FPS
 FPS = 60
@@ -112,7 +118,8 @@ def open_window(dock):
 class TetrisGameGUI:
     """Pygame GUI for Tetris AI."""
 
-    def __init__(self, policy, model_name, use_lookahead=False, speed=2, randomizer='random', dock='left'):
+    def __init__(self, policy, model_name, use_lookahead=False, speed=2, randomizer='random', dock='left',
+                 slow_at=14, normal_speed=10, resume_below=6):
         """
         Initialize the game GUI.
 
@@ -123,6 +130,9 @@ class TetrisGameGUI:
             speed: moves per second at start (snapped to the nearest level in SPEEDS)
             randomizer: 'random' or 'bag'
             dock: 'left', 'right' or 'none' (window placement)
+            slow_at: holes that trigger the automatic slow-down (0 = off)
+            normal_speed: moves per second while slowed down
+            resume_below: back to the previous speed once holes are below this
         """
         self.window = open_window(dock)
         self.screen = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))   # drawn at fixed size, scaled to the window
@@ -141,6 +151,12 @@ class TetrisGameGUI:
         numeric = [v for v in SPEEDS if v != 'max']
         self.speed_index = SPEEDS.index(min(numeric, key=lambda v: abs(v - speed)))
         self.move_credit = 0.0      # fractional moves owed at the current speed
+        self.auto_slow = slow_at > 0
+        self.slow_at = slow_at or 14
+        self.normal_index = SPEEDS.index(min(numeric, key=lambda v: abs(v - normal_speed)))
+        self.resume_below = resume_below
+        self.slowed_from = None     # speed index to return to after an automatic slow-down
+        self.message = None         # (text, colour, until_ms) banner
 
         # Piece generation
         self.stream = PieceQueue(randomizer)
@@ -232,10 +248,6 @@ class TetrisGameGUI:
             cell_y = offset_y + (r - min_row) * CELL_SIZE
             self.draw_cell(cell_x, cell_y, color)
 
-        # Piece name
-        name_text = self.font_medium.render(piece.name, True, color)
-        name_rect = name_text.get_rect(center=(x + box_size // 2, box_y + box_size + 20))
-        self.screen.blit(name_text, name_rect)
 
     def draw_stats(self):
         """Draw game statistics."""
@@ -251,7 +263,9 @@ class TetrisGameGUI:
             ("Lines", f"{self.game.lines_cleared:,}", (0, 255, 100)),
             ("Score", f"{self.game.score:,}", (255, 215, 0)),
             ("Pieces", f"{self.game.pieces_placed:,}", WHITE),
+            ("Holes", f"{self.holes()}", (255, 80, 80) if self.holes() >= self.slow_at else WHITE),
             ("Speed", self.speed_label(), (255, 100, 255)),
+            ("Auto slow", f"at {self.slow_at} holes" if self.auto_slow else "off", GRAY),
         ]
 
         for label, value, color in stats:
@@ -308,7 +322,15 @@ class TetrisGameGUI:
                                 "NEXT (lookahead)" if self.use_lookahead else "NEXT")
 
         # Controls hint
-        hint = "UP/DOWN: Speed | M: Max | SPACE: Pause | Q: Quit"
+        if self.message and pygame.time.get_ticks() < self.message[2]:
+            text = self.font_medium.render(self.message[0], True, self.message[1])
+            self.screen.blit(text, text.get_rect(center=(WINDOW_WIDTH // 2, 62)))
+        elif self.slowed_from is not None:
+            text = self.font_small.render(f"Crisis - watching at normal speed (resumes below {self.resume_below} holes)",
+                                          True, (255, 80, 80))
+            self.screen.blit(text, text.get_rect(center=(WINDOW_WIDTH // 2, 62)))
+
+        hint = "UP/DOWN: Speed | M: Max | A: Auto slow | SPACE: Pause | Q: Quit"
         self.draw_text(hint, 20, WINDOW_HEIGHT - 30, self.font_small, GRAY)
 
         self.present()
@@ -323,12 +345,37 @@ class TetrisGameGUI:
                          ((win_w - size[0]) // 2, (win_h - size[1]) // 2))
         pygame.display.flip()
 
+    def holes(self):
+        return board_stats(self.game)[1]
+
+    def notify(self, text, colour, seconds=4):
+        self.message = (text, colour, pygame.time.get_ticks() + seconds * 1000)
+
+    def check_crisis(self):
+        """Automatic slow-down in a crisis and speed-up once the board has recovered."""
+        if not self.auto_slow or self.game.game_over:
+            return
+        holes = self.holes()
+        if self.slowed_from is None and holes >= self.slow_at and self.speed_index > self.normal_index:
+            self.slowed_from = self.speed_index
+            self.speed_index = self.normal_index
+            self.move_credit = 0.0
+            self.notify(f"CRISIS: {holes} holes - slowed down", (255, 80, 80), seconds=6)
+        elif self.slowed_from is not None and holes < self.resume_below:
+            self.resume(f"Recovered ({holes} hole{'s' if holes != 1 else ''}) - speeding up")
+
+    def resume(self, text):
+        self.speed_index, self.slowed_from = self.slowed_from, None
+        self.move_credit = 0.0
+        self.notify(text, (0, 255, 100))
+
     def speed_label(self):
         v = SPEEDS[self.speed_index]
         engine = 'C' if self.lib and (v == 'max' or v > PYTHON_MAX_SPEED) else 'Python'
         return f"{'max' if v == 'max' else f'{v:,}/s'} ({engine})"
 
     def change_speed(self, step):
+        self.slowed_from = None               # the user takes over
         self.speed_index = max(0, min(len(SPEEDS) - 1, self.speed_index + step))
         self.move_credit = 0.0
 
@@ -349,10 +396,14 @@ class TetrisGameGUI:
             while made < owed and not self.game.game_over:
                 self.make_move()
                 made += 1
+                before = self.speed_index
+                self.check_crisis()
+                if self.speed_index != before:
+                    break
                 if pygame.time.get_ticks() - start > FRAME_BUDGET_MS:
                     break
         if v != 'max':
-            self.move_credit -= made
+            self.move_credit = max(0.0, self.move_credit - made)
 
     def play_fast(self, owed):
         """Play up to `owed` moves in the C core within the frame budget; returns moves made."""
@@ -362,6 +413,9 @@ class TetrisGameGUI:
                 g.rows[r] = sum(1 << c for c, cell in enumerate(row) if cell)
             g.lines, g.pieces, g.score = self.game.lines_cleared, self.game.pieces_placed, self.game.score
         g = self.cgame
+        # Stop the C core the moment holes reach slow_at (unless already past it: the user chose to go fast)
+        stop = self.slow_at if self.auto_slow and self.slowed_from is None and self.holes() < self.slow_at else 0
+        outcome = ctypes.c_int(0)
         deadline = time.perf_counter() + FRAME_BUDGET_MS / 1000
         made = 0
         while made < owed and not g.game_over and time.perf_counter() < deadline:
@@ -369,15 +423,20 @@ class TetrisGameGUI:
             self.stream.ensure(n + 1)          # play() places at most len-1 pieces (the last is the preview)
             seq = (ctypes.c_int8 * (n + 1))(*(fastcore.PIECE_INDEX[p.name] for p in self.stream.items[:n + 1]))
             before = g.pieces
-            self.lib.play(ctypes.byref(g), ctypes.byref(self.cpolicy), seq, n + 1, int(self.use_lookahead),
-                          before + n, self.counts)
+            self.lib.play_until(ctypes.byref(g), ctypes.byref(self.cpolicy), seq, n + 1, int(self.use_lookahead),
+                                before + n, self.counts, stop, -1, ctypes.byref(outcome))
             self.stream.advance(g.pieces - before)
             made += g.pieces - before
+            if outcome.value == 2:             # crisis level reached
+                break
         # Mirror the C game into the Python game for drawing (piece letters are unknown: 'X')
         game = self.game
         game.board = [[('X' if (bits >> c) & 1 else 0) for c in range(game.width)] for bits in g.rows[:game.height]]
         game.lines_cleared, game.pieces_placed, game.score = g.lines, g.pieces, g.score
         game.game_over = bool(g.game_over)
+        if outcome.value == 2:
+            self.cgame = None                  # continue in Python at normal speed
+            self.check_crisis()
         return made
 
     def make_move(self):
@@ -437,6 +496,8 @@ class TetrisGameGUI:
         self.game = TetrisGame()
         self.stream = PieceQueue(self.randomizer)
         self.cgame = None
+        if self.slowed_from is not None:
+            self.resume("New game - back to previous speed")
 
     def run(self):
         """Main game loop."""
@@ -458,7 +519,13 @@ class TetrisGameGUI:
                     elif event.key in (pygame.K_DOWN, pygame.K_MINUS, pygame.K_KP_MINUS):
                         self.change_speed(-1)
                     elif event.key == pygame.K_m:
+                        self.slowed_from = None
                         self.speed_index = len(SPEEDS) - 1
+                    elif event.key == pygame.K_a:
+                        self.auto_slow = not self.auto_slow
+                        self.notify(f"Auto slow-down {'on' if self.auto_slow else 'off'}", WHITE)
+                        if not self.auto_slow and self.slowed_from is not None:
+                            self.resume("Auto slow-down off - back to previous speed")
 
             # Update game
             now = pygame.time.get_ticks()
@@ -490,6 +557,10 @@ def main():
                         help='Enable one-piece lookahead')
     parser.add_argument('--speed', type=float, default=2,
                         help='moves per second at start (1 ... 5000; UP/DOWN change it while playing, M = max)')
+    parser.add_argument('--slow-at', type=int, default=14,
+                        help='holes that trigger the automatic slow-down (0 = off, default 14)')
+    parser.add_argument('--normal-speed', type=float, default=10, help='moves per second while slowed down')
+    parser.add_argument('--resume-below', type=int, default=6, help='speed back up once holes are below this')
     parser.add_argument('--dock', choices=['left', 'right', 'none'], default='left',
                         help='place the window on the left/right half of the screen (default: left)')
 
@@ -500,7 +571,8 @@ def main():
         policy = Policy.load(path)
         name = os.path.splitext(os.path.basename(path))[0]
         game = TetrisGameGUI(policy, name, use_lookahead=args.lookahead, speed=args.speed,
-                             randomizer=args.randomizer, dock=args.dock)
+                             randomizer=args.randomizer, dock=args.dock,
+                             slow_at=args.slow_at, normal_speed=args.normal_speed, resume_below=args.resume_below)
         game.run()
     except Exception as e:
         print(f"\n❌ Error: {e}")

@@ -28,7 +28,7 @@ Python engine, which remains the fallback when no compiler is available.
 python demo.py                                  # watch the best model in models/
 python demo.py --model models/single_v4.json
 python demo.py --list                           # all models and their weights
-python demo_pygame.py --model models/single_v4.json   # left half of the screen; UP/DOWN speed, M = max (~30k moves/s)
+python demo_pygame.py --model models/single_v4.json   # left half of the screen; UP/DOWN speed, M = max (~30k moves/s); slows down by itself at 14 holes
 
 python -m pytest tests                          # test suite (~1 min)
 ```
