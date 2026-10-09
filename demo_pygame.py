@@ -4,13 +4,23 @@ Tetris AI with Pygame Graphics
 
 Connects the AI to a real Tetris game with proper graphics, animations, and colors.
 Requires: pip install pygame
+
+Keys: UP/+ faster, DOWN/- slower, M max speed, SPACE pause, Q quit.
+Up to 100 moves/s the Python engine plays (cells keep their piece colours).
+Faster than that the C core plays the same moves (bit-identical) far quicker,
+but it does not track piece letters, so cells placed there are drawn gray.
+The window opens on the left half of the screen (--dock right|none to change)
+and can be resized; the picture scales to fit.
 """
 
+import ctypes
 import pygame
 import sys
 import os
+import time
 
-from tetris import TetrisGame, Policy, PieceStream
+from tetris import TetrisGame, Policy, fastcore
+from tetris.pieces import make_generator
 from demo import default_model
 
 # Initialize Pygame
@@ -32,6 +42,7 @@ COLORS = {
     'Z': (240, 0, 0),        # Red
     'J': (0, 0, 240),        # Blue
     'L': (240, 160, 0),      # Orange
+    'X': (105, 115, 135),    # placed by the C core (piece unknown)
     0: DARK_GRAY             # Empty cell
 }
 
@@ -55,11 +66,53 @@ WINDOW_HEIGHT = 720
 # FPS
 FPS = 60
 
+# Moves per second; the last level ('max') plays as many moves as fit in each frame
+SPEEDS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 'max']
+PYTHON_MAX_SPEED = 100   # above this the C core plays (if it is available)
+FRAME_BUDGET_MS = 14     # time per frame spent on AI moves at high speed
+
+
+class PieceQueue:
+    """Upcoming pieces; current = items[0], next = items[1]. Shared by the Python and C engines."""
+
+    def __init__(self, randomizer='random'):
+        self.generator = make_generator(randomizer, None)
+        self.items = []
+        self.ensure(2)
+
+    def ensure(self, n):
+        while len(self.items) < n:
+            self.items.append(self.generator.get_next_piece())
+
+    @property
+    def current(self):
+        return self.items[0]
+
+    @property
+    def next(self):
+        return self.items[1]
+
+    def advance(self, n=1):
+        del self.items[:n]
+        self.ensure(2)
+
+
+def open_window(dock):
+    """Open a resizable window, docked to the left/right half of the desktop if asked."""
+    if dock != 'none':
+        desk_w, desk_h = pygame.display.get_desktop_sizes()[0]
+        width, height = desk_w // 2, desk_h - 80          # leave room for the top bar/title
+        x = 0 if dock == 'left' else desk_w - width
+        os.environ['SDL_VIDEO_WINDOW_POS'] = f'{x},40'
+    else:
+        width, height = WINDOW_WIDTH, WINDOW_HEIGHT
+    return pygame.display.set_mode((width, height), pygame.RESIZABLE)
+
 
 class TetrisGameGUI:
     """Pygame GUI for Tetris AI."""
 
-    def __init__(self, policy, model_name, use_lookahead=False, speed=1.0, randomizer='random'):
+    def __init__(self, policy, model_name, use_lookahead=False, speed=2, randomizer='random', dock='left'):
         """
         Initialize the game GUI.
 
@@ -67,10 +120,12 @@ class TetrisGameGUI:
             policy: tetris.policy.Policy to play with
             model_name: shown in the stats panel
             use_lookahead: Enable one-piece lookahead
-            speed: Game speed multiplier (higher = faster)
+            speed: moves per second at start (snapped to the nearest level in SPEEDS)
             randomizer: 'random' or 'bag'
+            dock: 'left', 'right' or 'none' (window placement)
         """
-        self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+        self.window = open_window(dock)
+        self.screen = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))   # drawn at fixed size, scaled to the window
         pygame.display.set_caption("Tetris AI - Pygame Demo")
         self.clock = pygame.time.Clock()
         self.font_large = pygame.font.Font(None, 48)
@@ -83,14 +138,19 @@ class TetrisGameGUI:
         self.model_name = model_name
         self.randomizer = randomizer
         self.use_lookahead = use_lookahead
-        self.speed = speed
-        self.move_delay = max(50, int(500 / speed))  # ms between moves
+        numeric = [v for v in SPEEDS if v != 'max']
+        self.speed_index = SPEEDS.index(min(numeric, key=lambda v: abs(v - speed)))
+        self.move_credit = 0.0      # fractional moves owed at the current speed
 
         # Piece generation
-        self.stream = PieceStream(randomizer)
+        self.stream = PieceQueue(randomizer)
+        self.lib = fastcore._load()          # None without a C compiler: Python only
+        self.cpolicy = fastcore.to_cpolicy(policy) if self.lib else None
+        self.cgame = None                    # C copy of the game while the C core plays
+        self.counts = (ctypes.c_int64 * fastcore.MAX_RULES)()
 
         # Timing
-        self.last_move_time = pygame.time.get_ticks()
+        self.last_tick = pygame.time.get_ticks()
 
         # Stats
         self.games_played = 0
@@ -188,10 +248,10 @@ class TetrisGameGUI:
         y += 35
 
         stats = [
-            ("Lines", f"{self.game.lines_cleared}", (0, 255, 100)),
+            ("Lines", f"{self.game.lines_cleared:,}", (0, 255, 100)),
             ("Score", f"{self.game.score:,}", (255, 215, 0)),
-            ("Pieces", f"{self.game.pieces_placed}", WHITE),
-            ("Regime", getattr(self.ai, 'last_regime', '-'), (255, 100, 255)),
+            ("Pieces", f"{self.game.pieces_placed:,}", WHITE),
+            ("Speed", self.speed_label(), (255, 100, 255)),
         ]
 
         for label, value, color in stats:
@@ -207,8 +267,8 @@ class TetrisGameGUI:
 
         avg_lines = self.total_lines / self.games_played if self.games_played > 0 else 0
         session_stats = [
-            ("Best", f"{self.best_lines}", (0, 255, 255)),
-            ("Average", f"{avg_lines:.1f}", (255, 165, 0)),
+            ("Best", f"{self.best_lines:,}", (0, 255, 255)),
+            ("Average", f"{avg_lines:,.0f}", (255, 165, 0)),
             ("Games", f"{self.games_played}", WHITE),
         ]
 
@@ -248,10 +308,77 @@ class TetrisGameGUI:
                                 "NEXT (lookahead)" if self.use_lookahead else "NEXT")
 
         # Controls hint
-        hint = "SPACE: Pause | Q: Quit"
+        hint = "UP/DOWN: Speed | M: Max | SPACE: Pause | Q: Quit"
         self.draw_text(hint, 20, WINDOW_HEIGHT - 30, self.font_small, GRAY)
 
+        self.present()
+
+    def present(self):
+        """Scale the fixed-size picture into the (resizable) window, keeping its aspect ratio."""
+        win_w, win_h = self.window.get_size()
+        scale = min(win_w / WINDOW_WIDTH, win_h / WINDOW_HEIGHT)
+        size = (max(1, int(WINDOW_WIDTH * scale)), max(1, int(WINDOW_HEIGHT * scale)))
+        self.window.fill(BLACK)
+        self.window.blit(pygame.transform.smoothscale(self.screen, size),
+                         ((win_w - size[0]) // 2, (win_h - size[1]) // 2))
         pygame.display.flip()
+
+    def speed_label(self):
+        v = SPEEDS[self.speed_index]
+        engine = 'C' if self.lib and (v == 'max' or v > PYTHON_MAX_SPEED) else 'Python'
+        return f"{'max' if v == 'max' else f'{v:,}/s'} ({engine})"
+
+    def change_speed(self, step):
+        self.speed_index = max(0, min(len(SPEEDS) - 1, self.speed_index + step))
+        self.move_credit = 0.0
+
+    def play_frame(self, dt_ms):
+        """Make the moves this frame owes at the current speed, within the frame's time budget."""
+        v = SPEEDS[self.speed_index]
+        if v == 'max':
+            owed = float('inf')
+        else:
+            self.move_credit = min(self.move_credit + v * dt_ms / 1000, v)   # no catch-up bursts after a stall
+            owed = int(self.move_credit)
+        if self.lib and (v == 'max' or v > PYTHON_MAX_SPEED):
+            made = self.play_fast(owed)
+        else:
+            self.cgame = None                 # the Python game is the truth again
+            start = pygame.time.get_ticks()
+            made = 0
+            while made < owed and not self.game.game_over:
+                self.make_move()
+                made += 1
+                if pygame.time.get_ticks() - start > FRAME_BUDGET_MS:
+                    break
+        if v != 'max':
+            self.move_credit -= made
+
+    def play_fast(self, owed):
+        """Play up to `owed` moves in the C core within the frame budget; returns moves made."""
+        if self.cgame is None:               # hand the board over from the Python game
+            g = self.cgame = fastcore.CGame(width=self.game.width, height=self.game.height)
+            for r, row in enumerate(self.game.board):
+                g.rows[r] = sum(1 << c for c, cell in enumerate(row) if cell)
+            g.lines, g.pieces, g.score = self.game.lines_cleared, self.game.pieces_placed, self.game.score
+        g = self.cgame
+        deadline = time.perf_counter() + FRAME_BUDGET_MS / 1000
+        made = 0
+        while made < owed and not g.game_over and time.perf_counter() < deadline:
+            n = int(min(owed - made, 500))
+            self.stream.ensure(n + 1)          # play() places at most len-1 pieces (the last is the preview)
+            seq = (ctypes.c_int8 * (n + 1))(*(fastcore.PIECE_INDEX[p.name] for p in self.stream.items[:n + 1]))
+            before = g.pieces
+            self.lib.play(ctypes.byref(g), ctypes.byref(self.cpolicy), seq, n + 1, int(self.use_lookahead),
+                          before + n, self.counts)
+            self.stream.advance(g.pieces - before)
+            made += g.pieces - before
+        # Mirror the C game into the Python game for drawing (piece letters are unknown: 'X')
+        game = self.game
+        game.board = [[('X' if (bits >> c) & 1 else 0) for c in range(game.width)] for bits in g.rows[:game.height]]
+        game.lines_cleared, game.pieces_placed, game.score = g.lines, g.pieces, g.score
+        game.game_over = bool(g.game_over)
+        return made
 
     def make_move(self):
         """Let AI make a move."""
@@ -294,7 +421,7 @@ class TetrisGameGUI:
         self.screen.blit(game_over_text, game_over_rect)
 
         # Final score
-        score_text = self.font_medium.render(f"Lines: {self.game.lines_cleared}", True, (0, 255, 100))
+        score_text = self.font_medium.render(f"Lines: {self.game.lines_cleared:,}", True, (0, 255, 100))
         score_rect = score_text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 + 10))
         self.screen.blit(score_text, score_rect)
 
@@ -303,12 +430,13 @@ class TetrisGameGUI:
         restart_rect = restart_text.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2 + 60))
         self.screen.blit(restart_text, restart_rect)
 
-        pygame.display.flip()
+        self.present()
         pygame.time.wait(2000)
 
         # Reset game
         self.game = TetrisGame()
-        self.stream = PieceStream(self.randomizer)
+        self.stream = PieceQueue(self.randomizer)
+        self.cgame = None
 
     def run(self):
         """Main game loop."""
@@ -325,13 +453,18 @@ class TetrisGameGUI:
                         running = False
                     elif event.key == pygame.K_SPACE:
                         paused = not paused
+                    elif event.key in (pygame.K_UP, pygame.K_PLUS, pygame.K_KP_PLUS, pygame.K_EQUALS):
+                        self.change_speed(+1)
+                    elif event.key in (pygame.K_DOWN, pygame.K_MINUS, pygame.K_KP_MINUS):
+                        self.change_speed(-1)
+                    elif event.key == pygame.K_m:
+                        self.speed_index = len(SPEEDS) - 1
 
             # Update game
+            now = pygame.time.get_ticks()
             if not paused and not self.game.game_over:
-                current_time = pygame.time.get_ticks()
-                if current_time - self.last_move_time > self.move_delay:
-                    self.make_move()
-                    self.last_move_time = current_time
+                self.play_frame(now - self.last_tick)
+            self.last_tick = now
 
             # Handle game over
             if self.game.game_over:
@@ -355,8 +488,10 @@ def main():
     parser.add_argument('--randomizer', choices=['random', 'bag'], default='random')
     parser.add_argument('--lookahead', action='store_true',
                         help='Enable one-piece lookahead')
-    parser.add_argument('--speed', type=float, default=1.0,
-                        help='Game speed multiplier (default: 1.0, try 2.0 for faster)')
+    parser.add_argument('--speed', type=float, default=2,
+                        help='moves per second at start (1 ... 5000; UP/DOWN change it while playing, M = max)')
+    parser.add_argument('--dock', choices=['left', 'right', 'none'], default='left',
+                        help='place the window on the left/right half of the screen (default: left)')
 
     args = parser.parse_args()
 
@@ -365,7 +500,7 @@ def main():
         policy = Policy.load(path)
         name = os.path.splitext(os.path.basename(path))[0]
         game = TetrisGameGUI(policy, name, use_lookahead=args.lookahead, speed=args.speed,
-                             randomizer=args.randomizer)
+                             randomizer=args.randomizer, dock=args.dock)
         game.run()
     except Exception as e:
         print(f"\n❌ Error: {e}")
