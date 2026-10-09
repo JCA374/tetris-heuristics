@@ -54,7 +54,8 @@ plt.rcParams.update({
 
 # Model feature -> board feature computed here (lines is per-move, not a board property)
 MODEL_FEATURE = {'height': 'agg_height', 'holes': 'holes', 'bumpiness': 'bumpiness',
-                 'wells': 'cum_wells', 'hole_depth': 'hole_depth'}
+                 'wells': 'cum_wells', 'hole_depth': 'hole_depth', 'sz_fit': 'sz_fit'}
+# landing_height / eroded_cells describe the move, not the board, so they cannot be computed from recorded boards
 ALL_FEATURES = ['agg_height', 'holes', 'bumpiness', 'max_height', 'height_spread', 'rows_with_holes',
                 'hole_depth', 'max_col_holes', 'row_transitions', 'col_transitions', 'cum_wells',
                 'max_well', 'deep_wells', 'near_full_rows', 'surface_rough2', 'piece_fit', 'sz_fit']
