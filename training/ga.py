@@ -12,9 +12,9 @@ With all 6 features the single model has 6 genes and the 3-regime model 3*6 + 2 
 Noise control (Tetris line counts vary ~10x between games of the same policy):
 - Common random numbers: every individual in a generation plays the same
   seeds, so selection compares strategies rather than piece luck.
-- Archive: every evaluation of a genome is accumulated; elites survive and are
-  re-evaluated each generation, so their mean converges instead of being a
-  single lucky sample.
+- Archive: every evaluation of a genome is accumulated, and selection uses the
+  accumulated mean; elites survive and are re-evaluated each generation, so a
+  lucky genome keeps being tested until its mean converges.
 - Final pick: top archive candidates are re-played on separate validation
   seeds and the best validation mean wins.
 """
@@ -263,8 +263,9 @@ class GeneticAlgorithm:
                 seeds = [TRAIN_SEED_BASE + (gen - 1) * self.games + i for i in range(self.games)]
                 results = self.play_many(population, seeds)
                 fitnesses = [statistics.mean(r['lines'] for r in res) for res in results]
-                for genome, res in zip(population, results):
-                    self.record(genome, res)
+                # Select on the archive mean over *all* games a genome has played, not just this
+                # generation's: lucky genomes keep getting replayed (elites) until they regress.
+                selection = [self.record(genome, res) for genome, res in zip(population, results)]
 
                 best_i = max(range(len(population)), key=lambda i: fitnesses[i])
                 leaders = self.archive_best(min_games=2 * self.games)
@@ -294,7 +295,7 @@ class GeneticAlgorithm:
                         print(f"          thresholds: {th}")
 
                 if gen < generations:
-                    population = self.next_generation(population, fitnesses)
+                    population = self.next_generation(population, selection)
 
             policy = self.select_final(verbose)
         finally:

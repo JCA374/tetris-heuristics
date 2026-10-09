@@ -1,0 +1,56 @@
+{
+  "type": "regime",
+  "rules": [
+    {
+      "name": "repair",
+      "stat": "holes",
+      "op": ">=",
+      "threshold": 7
+    },
+    {
+      "name": "normal"
+    }
+  ],
+  "weights": {
+    "repair": {
+      "height": -0.18112901686212657,
+      "lines": 0.0,
+      "holes": -9.064127424778242,
+      "bumpiness": -1.0056795894690398,
+      "wells": -0.9583903727048353,
+      "hole_depth": -0.012004338119112707
+    },
+    "normal": {
+      "height": -0.18112901686212657,
+      "lines": 0.0,
+      "holes": -7.737452136696084,
+      "bumpiness": -1.0107390882616085,
+      "wells": -0.9583903727048353,
+      "hole_depth": -0.012004338119112707
+    }
+  },
+  "meta": {
+    "validation_mean": 304160.7,
+    "validation_games": 30,
+    "train_mean": 325951.78125,
+    "train_games": 32,
+    "name": "repair_v5",
+    "trained": "2026-10-09T13:01:39",
+    "run_dir": "runs/20261009_102648_repair",
+    "generations": 30,
+    "population": 30,
+    "games_per_individual": 8,
+    "max_pieces": 1000000,
+    "lookahead": false,
+    "randomizer": "random",
+    "init_model": "single_v4",
+    "features": [
+      "height",
+      "holes",
+      "bumpiness",
+      "wells",
+      "hole_depth"
+    ],
+    "training_minutes": 154.9
+  }
+}

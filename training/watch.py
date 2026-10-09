@@ -19,6 +19,7 @@ import json
 import os
 import sys
 import time
+import warnings
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -65,8 +66,10 @@ def print_table(runs):
 
 
 def plot_loop(find_runs, interval):
+    import matplotlib
     import matplotlib.pyplot as plt
 
+    matplotlib.rcParams['figure.raise_window'] = False   # refreshes must not steal focus
     plt.ion()
     fig = plt.figure(figsize=(13, 8))
     fig.canvas.manager.set_window_title('Tetris GA - live')
@@ -75,6 +78,12 @@ def plot_loop(find_runs, interval):
     ax_thr = fig.add_subplot(grid[1, 0])
     ax_w = fig.add_subplot(grid[1, 1])
 
+    from matplotlib.widgets import Button
+    button_ax = fig.add_axes([0.89, 0.955, 0.09, 0.035])
+    button = Button(button_ax, 'Refresh now')
+    button.on_clicked(lambda event: fig.canvas.stop_event_loop())   # ends the wait below early
+
+    shown = False
     while plt.fignum_exists(fig.number):
         runs = find_runs()
         ax_fit.clear(); ax_thr.clear(); ax_w.clear()
@@ -134,16 +143,23 @@ def plot_loop(find_runs, interval):
         ax_w.grid(alpha=0.3, axis='y')
 
         names = '  |  '.join(os.path.basename(r) for r in runs)
-        fig.suptitle(f'{names}\nUpdated {time.strftime("%H:%M:%S")}  -  refreshes every {interval}s  -  close window to exit',
+        fig.suptitle(f'{names}\nUpdated {time.strftime("%H:%M:%S")}  -  refreshes every {interval}s (or click Refresh now)',
                      fontsize=10)
-        fig.tight_layout()
-        plt.pause(interval)
+        with warnings.catch_warnings():   # the button's axes are outside the grid, which is fine
+            warnings.simplefilter('ignore', UserWarning)
+            fig.tight_layout(rect=(0, 0, 1, 0.95))
+        if not shown:
+            plt.show(block=False)
+            shown = True
+        fig.canvas.draw_idle()
+        # Unlike plt.pause, this keeps the window responsive without re-showing/raising it
+        fig.canvas.start_event_loop(interval)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('runs', nargs='*', help='run directories (default: newest per model type)')
-    parser.add_argument('--interval', type=int, default=15, help='refresh seconds')
+    parser.add_argument('--interval', type=int, default=300, help='refresh seconds')
     parser.add_argument('--text', action='store_true', help='print a table instead of plotting')
     args = parser.parse_args()
 

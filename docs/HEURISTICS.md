@@ -81,8 +81,12 @@ uses a new stat, add threshold bounds in `training/ga.py`. Then train with
   and 5 elites.
 - **Common random numbers:** every individual in a generation plays the same
   seeds, so selection compares strategies, not piece luck.
-- **Archive:** each evaluation of a genome is accumulated. Elites are re-played
-  every generation, so their mean converges instead of being one lucky sample.
+- **Archive:** each evaluation of a genome is accumulated, and selection (elites
+  and tournaments) uses that accumulated mean, not just the current generation.
+  Elites are re-played every generation, so a lucky genome keeps being tested
+  until it regresses. (Before Oct 9, 2026, selection used only the current
+  generation's games, so a genome with two lucky generations could drop out of
+  the elite and stay at the top of the archive untested.)
 - **Final pick:** the top archive candidates are re-played on separate
   validation seeds, and the best validation mean is saved.
 - **Seeding:** half of the population starts from `--init` (default: the
