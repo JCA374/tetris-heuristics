@@ -14,6 +14,9 @@ score = w_height * aggregate_height
       + w_bump   * bumpiness
       + w_wells  * cumulative_wells
       + w_depth  * hole_depth
+      + w_land   * landing_height        # move features (v7)
+      + w_eroded * eroded_cells
+      + w_sz     * sz_fit
 ```
 
 ## Features (`tetris/features.py`)
@@ -26,10 +29,19 @@ score = w_height * aggregate_height
 | `bumpiness` | sum of `|h[i] - h[i+1]|` over adjacent columns | negative: a flat surface fits more pieces |
 | `wells` | sum of `d(d+1)/2` over columns, where `d` is how far a column sits below its lower neighbour (walls count as infinitely high) | negative: deep 1-wide gaps need an I-piece |
 | `hole_depth` | for every hole, the filled cells above it in its column | negative: buried holes are permanent |
+| `landing_height` | height where the piece lands: rows below its bottom cell + half its own height (Dellacherie) | negative: place low |
+| `eroded_cells` | rows cleared by the move × the piece's own cells in those rows (Dellacherie) | positive: clear with the piece |
+| `sz_fit` | how many of S and Z (0-2) still have a hole-free spot on the surface after the move | positive: keep a home for S/Z |
 
 `wells` and `hole_depth` were added in October 2026 after analysing 500 recorded
-baseline games (see *Finding new features* below). Models saved without weights
-for them get 0, so they play exactly as before.
+baseline games (see *Finding new features* below). The three move features came
+from the same analysis on single_v4 (see below). Models saved without weights
+for a feature get 0, so they play exactly as before.
+
+`landing_height` and `eroded_cells` describe the move, not the board, so they
+are computed in `place_piece` before the full rows are removed (`last_landing`,
+`last_eroded` on the game; `last_landing2`/`last_eroded` in the C core, where
+landing height is stored doubled to stay an integer).
 
 Weights are scale-invariant: multiplying all of them by the same positive
 number picks the same moves. Only the ratios matter.
@@ -188,6 +200,17 @@ What the baseline analysis found (500 games):
 - 47% of holes at death are in the two wall columns (20% if spread evenly).
 - Strongest added information beyond height/holes/bumpiness: hole depth
   (+0.13 partial correlation with dying sooner) and cumulative wells (+0.12).
+
+What the single_v4 analysis found (October 2026), which led to the move features:
+- No new *board* feature adds information (all partial correlations |r| < 0.02).
+- S and Z make the holes: 12% of their moves create one, ~5% for other pieces.
+  54% of those S/Z holes were forced (no hole-free placement), but 93% of the
+  hole moves by other pieces had a hole-free option the weights did not prefer.
+- So: features of the move itself (`landing_height`, `eroded_cells`) and of the
+  surface's fit for S/Z (`sz_fit`). Result (`single_v7`, trained from single_v4
+  with splitting fitness): about **5× more lines** on held-out full games. The GA
+  replaced `height` with `landing_height` (height weight → 0), gave `sz_fit`
+  +1.15, and left `eroded_cells` and `hole_depth` at 0.
 
 ## Why scores need many games
 

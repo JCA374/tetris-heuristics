@@ -118,7 +118,7 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
   <nav>
     <a href="#bot">The bot</a><a href="#noise">Measuring</a><a href="#training">Training</a>
     <a href="#discovery">Discovery</a><a href="#results">Results</a><a href="#regimes">Regimes</a>
-    <a href="#limits">Limits</a><a href="#method">Training method</a><a href="#next">Next</a>
+    <a href="#limits">Limits</a><a href="#moves">Move features</a><a href="#method">Training method</a><a href="#next">Next</a>
   </nav>
   <button class="theme-btn" id="theme" type="button" aria-label="Toggle light or dark theme">Theme</button>
 </div></header>
@@ -126,10 +126,11 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
 <main>
 <div class="hero">
   <div class="kicker">Data-driven learning, documented</div>
-  <h1>From 1,785 to 413,000 lines by looking at how the bot dies</h1>
+  <h1>From 1,785 to over 2.5 million lines by looking at how the bot dies</h1>
   <p class="lede">A heuristic Tetris bot with weights tuned by a genetic algorithm. The breakthrough did not come from more
-  training or smarter rules but from recording thousands of lost games, measuring what predicts death, and adding the two
-  features that were missing.</p>
+  training or smarter rules but from recording thousands of lost games, measuring what predicts death, and adding the
+  features that were missing. That worked twice: two board features took it to ~500,000 lines, three move features
+  then to over 2.5 million.</p>
   <div class="tiles" id="tiles"></div>
 </div>
 
@@ -139,8 +140,9 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
   <div class="prose">
     <p>For each piece the bot tries every rotation and column, simulates the board after the drop, and scores it:
     <code>score = Σ weight × feature</code>. The highest score wins. A genetic algorithm searches for the weights.
-    A <em>regime</em> model has several weight sets and picks one from the board before the move (e.g. "repair" when
-    there are many holes).</p>
+    Board features describe the board after the drop; move features (landing height, eroded cells, S/Z fit) describe
+    the drop itself. A <em>regime</em> model (concluded research) has several weight sets and picks one from the board
+    before the move.</p>
   </div>
   <div class="figure">
     <h3>Weights of the main models</h3>
@@ -315,8 +317,50 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
   </div>
 </section>
 
+<section id="moves">
+  <div class="kicker">8 · Move features</div>
+  <h2>Three move features: about 5× more lines</h2>
+  <div class="prose">
+    <p>The single_v4 analysis said the board features were used up, but it also showed <em>where</em> the holes come
+    from: S and Z pieces make a hole in 12% of their moves (other pieces ~5%), and 93% of the hole moves by other pieces
+    had a hole-free option the weights did not prefer. Both point at information the board after the drop does not
+    carry, so three features describe the move itself:</p>
+    <ul>
+      <li><strong>landing height</strong>: where the piece lands (rows below it + half its own height). Place low.</li>
+      <li><strong>eroded cells</strong>: rows the move clears × the piece's own cells in them. Clear with the piece.</li>
+      <li><strong>S/Z fit</strong>: how many of S and Z (0–2) still have a hole-free spot after the move. Keep a home for S/Z.</li>
+    </ul>
+    <p>single_v7 was trained from single_v4 with all eight features, using the same GA and splitting fitness that could
+    not improve single_v4 on its own (section 9).</p>
+  </div>
+  <div class="grid2">
+    <div class="figure">
+      <h3>single_v4 vs single_v7 on the same held-out games</h3>
+      <p class="caption" id="v7-caption">Dots: single games (log scale). Bar: mean with 95% bootstrap interval.</p>
+      <div class="chart" id="c-v7-games"></div>
+      <details class="data"><summary>Data table</summary><div id="t-v7"></div></details>
+    </div>
+    <div class="figure">
+      <h3>What the GA did with the new features</h3>
+      <p class="caption">Leader weights of single_v4 and single_v7 (only ratios matter). Landing height replaced
+      height, S/Z fit got a clear positive weight, and eroded cells and hole depth went to zero.</p>
+      <div class="legend" id="v7-weights-legend"></div>
+      <div class="chart" id="c-v7-weights"></div>
+    </div>
+  </div>
+  <div class="figure">
+    <h3>Both measures agree, this time far from zero</h3>
+    <p class="caption" id="v7-diff-caption"></p>
+    <div class="chart" id="c-v7-diff"></div>
+  </div>
+  <div class="callout"><strong>Conclusion:</strong> the gain came from new information, not from the optimizer. The
+  splitting estimate overstates single_v7 (it predicts ~6M lines), but it ranks the models correctly and the effect is
+  far outside the noise. Next: retrain without the zero-weight features (v8) and check whether the next-piece preview
+  removes the forced S/Z holes.</div>
+</section>
+
 <section id="method">
-  <div class="kicker">8 · Training method</div>
+  <div class="kicker">9 · Training method</div>
   <h2>Measuring the rare event through the common ones</h2>
   <div class="prose">
     <p><strong>The problem.</strong> A strong model dies about once per million pieces. One full game costs ~10
@@ -372,14 +416,14 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
 </section>
 
 <section id="next">
-  <div class="kicker">9 · Next</div>
+  <div class="kicker">10 · Next</div>
   <h2>What the data suggests next</h2>
   <ol class="next prose">
-    <li><strong>Move features.</strong> Landing height and eroded cells (Dellacherie). They describe the move, not the
-    board, so they can target the 93% of non-S/Z hole moves where a hole-free option existed.</li>
-    <li><strong>Lookahead.</strong> Use the next-piece preview, which targets the forced S/Z holes.</li>
-    <li><strong>Train both with splitting fitness</strong> and confirm on 1,000+ full games. Regime switching is
-    concluded: it never beat one weight set.</li>
+    <li><strong>v8: drop the dead weights.</strong> Retrain from single_v7 with only holes, bumpiness, wells, landing
+    height and S/Z fit (fewer genes, less noise), on start boards from single_v7's own play.</li>
+    <li><strong>Failure analysis of single_v7.</strong> What does it die of now that S/Z have a home?</li>
+    <li><strong>Lookahead.</strong> Use the next-piece preview, which targets the S/Z holes that are still forced.</li>
+    <li>Regime switching is concluded: it never beat one weight set.</li>
   </ol>
   <div class="callout">The method behind every chart here is written up in
   <a href="ANALYSIS_METHOD.md">docs/ANALYSIS_METHOD.md</a>: record failures with context, compute candidate signals,
@@ -403,7 +447,7 @@ const LABELS = {
   piece_fit: 'piece types that fit', sz_fit: 'S/Z that fit',
 };
 const PIECES = 'IOTSZJL';
-const FEATURES = ['height', 'lines', 'holes', 'bumpiness', 'wells', 'hole_depth'];
+const FEATURES = ['height', 'lines', 'holes', 'bumpiness', 'wells', 'hole_depth', 'landing_height', 'eroded_cells', 'sz_fit'];
 const fmt = d3.format(',.0f');
 const pct = d3.format('.0%');
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -476,10 +520,14 @@ function tiles() {
   const latestRepair = DATA.repair.length ? DATA.repair[DATA.repair.length - 1] : null;
   const rv = latestRepair && latestRepair.models.find(d => d.name === 'repair_v5');
   const full = DATA.optimizer && DATA.optimizer.full ? DATA.optimizer.full.models.find(d => d.name === 'single_v4') : null;
-  const bestMean = full ? full.mean : best.mean;
+  const v7 = DATA.v7 && DATA.v7.full ? DATA.v7.full.models.find(d => d.name === 'single_v7') : null;
+  const bestMean = v7 ? v7.mean : full ? full.mean : best.mean;
+  const bestNote = v7 ? `single_v7, ${fmt(DATA.v7.full.settings.games)} held-out games, ${fmt(bestMean / base1.mean)}× the original` +
+      (v7.capped ? `; ${v7.capped} games hit the piece cap, so a lower bound` : '')
+    : `single_v4, ${full ? '1,000' : '50'} held-out games, ${Math.round(bestMean / base1.mean)}× the original`;
   const items = [
     ['Original model', fmt(base1.mean), 'lines per game (mean of 50 held-out games)'],
-    ['Best model now', fmt(bestMean), `single_v4, ${full ? '1,000' : '50'} held-out games, ${Math.round(bestMean / base1.mean)}× the original`],
+    ['Best model now', (v7 && v7.capped ? '≥ ' : '') + fmt(bestMean), bestNote],
     ['Reported by the old GA', '5,968', 'true mean of that model: ' + fmt(base1.mean)],
     ['Best regime model', rv ? (rv.diff >= 0 ? '+' : '') + pct(rv.diff / latestRepair.models[0].mean) : 'n/a',
       rv ? `vs single_v4, ${rv.significant ? 'significant' : 'not significant'} (${latestRepair.settings.games} games). Research concluded.` : ''],
@@ -536,7 +584,7 @@ function noise() {
 let currentRun = null;
 function runButtons() {
   const box = document.getElementById('run-buttons');
-  if (!currentRun) currentRun = DATA.runs.find(r => r.label === 'v4 single')?.id || DATA.runs[0].id;
+  if (!currentRun) currentRun = (DATA.runs.find(r => r.label === 'v7 single') || DATA.runs.find(r => r.label === 'v4 single'))?.id || DATA.runs[0].id;
   box.innerHTML = DATA.runs.map(r => `<button type="button" data-id="${r.id}" aria-pressed="${r.id === currentRun}">${r.label}</button>`).join('');
   box.querySelectorAll('button').forEach(b => b.addEventListener('click', () => { currentRun = b.dataset.id; runButtons(); training(); }));
 }
@@ -793,8 +841,71 @@ function method() {
   }
 }
 
+function moves() {
+  const v7 = DATA.v7;
+  if (!v7) return;
+  const [c1, c2] = series();
+  if (v7.full) {
+    const ms = v7.full.models;
+    const dots = ms.flatMap(m => m.lines.map(v => ({ model: m.name, lines: Math.max(v, 1) })));
+    const el = document.getElementById('c-v7-games');
+    mount('c-v7-games', base(el, {
+      height: 230, marginLeft: 84,
+      x: { type: 'log', label: 'lines per game →', tickFormat: '~s', ticks: [1e3, 1e4, 1e5, 1e6, 1e7] },
+      y: { domain: ms.map(d => d.name), label: null },
+      marks: [Plot.gridX([1e3, 1e4, 1e5, 1e6, 1e7], { stroke: css('--grid'), strokeOpacity: 1 }),
+        Plot.dot(dots, { x: 'lines', y: 'model', fill: d => d.model === 'single_v7' ? c2 : c1, fillOpacity: 0.35, r: 2.5 }),
+        Plot.ruleY(ms, { y: 'name', x1: d => d.ci[0], x2: d => d.ci[1], stroke: css('--ink'), strokeWidth: 3, strokeLinecap: 'round' }),
+        Plot.tickX(ms, { y: 'name', x: 'mean', stroke: css('--ink'), strokeWidth: 2.5 }),
+        Plot.text(ms, { y: 'name', x: 'mean', text: d => `mean ${d3.format('.3s')(d.mean)}`, textAnchor: 'middle', fill: css('--ink'), dy: -17 }),
+        Plot.tip(ms, Plot.pointerY({ y: 'name', x: 'mean', ...tipStyle(), title: d =>
+          `${d.name}\nmean ${fmt(d.mean)} (95%: ${fmt(d.ci[0])}–${fmt(d.ci[1])})\nmedian ${fmt(d.median)}${d.capped ? `\n${d.capped} games hit the cap (lower bounds)` : ''}` }))],
+    }));
+    const v = ms.find(d => d.name === 'single_v7');
+    const capped = v && v.capped ? ` ${v.capped} single_v7 games hit the ${d3.format('.2s')(v7.full.settings.max_pieces)}-piece cap, so its mean is a lower bound.` : '';
+    document.getElementById('v7-caption').textContent =
+      `${fmt(v7.full.settings.games)} held-out games per model, same piece sequences. Dots: single games (log scale). ` +
+      `Bar: mean with 95% bootstrap interval. single_v7 won ${v.wins} of ${v.wins + v.losses} pairs.${capped}`;
+    table('t-v7', [['model', d => d.name], ['mean', d => fmt(d.mean)], ['95% CI', d => `${fmt(d.ci[0])}–${fmt(d.ci[1])}`], ['median', d => fmt(d.median)],
+      ['vs single_v4', d => d.diff == null ? 'reference' : `${d.diff >= 0 ? '+' : ''}${fmt(d.diff)}${d.significant ? ' *' : ''}`], ['W/L', d => d.wins == null ? '' : `${d.wins}/${d.losses}`]], ms);
+  }
+  const byName = Object.fromEntries(DATA.models.map(m => [m.name, m]));
+  if (byName.single_v4 && byName.single_v7) {
+    const feats = FEATURES.filter(f => f !== 'lines');
+    const w = name => byName[name].weights[byName[name].rules[byName[name].rules.length - 1].name];
+    const pts = ['single_v4', 'single_v7'].flatMap(name => feats.map(f => ({ model: name, feature: f.replace('_', ' '), w: w(name)[f] || 0 })));
+    legend('v7-weights-legend', [['single_v4', c1, 'dot'], ['single_v7', c2, 'dot']]);
+    const el = document.getElementById('c-v7-weights');
+    mount('c-v7-weights', base(el, {
+      height: 360, marginLeft: 110,
+      x: { label: 'weight →', grid: true },
+      y: { domain: feats.map(f => f.replace('_', ' ')), label: null },
+      marks: [gridX(), Plot.ruleX([0], { stroke: css('--ink') }),
+        // two marks so each model gets its own vertical offset (dy must be a constant)
+        ...[['single_v4', c1, -6], ['single_v7', c2, 6]].map(([name, color, dy]) =>
+          Plot.dot(pts.filter(d => d.model === name), { x: 'w', y: 'feature', fill: color, r: 6, dy, stroke: css('--surface'), strokeWidth: 2,
+            tip: { ...tipStyle(), title: d => `${d.model}\n${d.feature}: ${d.w.toFixed(3)}` } }))],
+    }));
+  }
+  const rows = [];
+  if (v7.screen) {
+    const d = v7.screen.models.single_v7;
+    rows.push({ name: `splitting screen (${v7.screen.estimates} estimates)`, diff: d.ratio - 1, lo: d.ratio_ci95[0] - 1, hi: d.ratio_ci95[1] - 1 });
+  }
+  if (v7.full) {
+    const ref = v7.full.models[0], d = v7.full.models.find(m => m.name === 'single_v7');
+    rows.push({ name: `${fmt(v7.full.settings.games)} full games`, diff: d.diff / ref.mean, lo: d.diff_ci[0] / ref.mean, hi: d.diff_ci[1] / ref.mean });
+  }
+  if (rows.length) {
+    document.getElementById('v7-diff-caption').textContent =
+      'Change vs single_v4 with 95% interval. Compare the optimizer test in section 9, where the splitting screen showed +18% ' +
+      'and full games showed nothing. Here both measures show several hundred percent: the screen overstates the size, not the direction.';
+    diffRows('c-v7-diff', rows, d => d.name, { floor: -0.2, keepOrder: true });
+  }
+}
+
 function renderAll() {
-  tiles(); weights(); noise(); runButtons(); training(); discovery(); results(); regimes(); limits(); method();
+  tiles(); weights(); noise(); runButtons(); training(); discovery(); results(); regimes(); limits(); moves(); method();
   document.getElementById('footer').innerHTML =
     `Built ${DATA.built} from the experiment logs with <code>experiments/build_site.py</code>. ` +
     `Code and method: <a href="https://github.com/JCA374/tetris-heuristics">github.com/JCA374/tetris-heuristics</a>.`;

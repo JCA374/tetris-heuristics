@@ -43,9 +43,12 @@ RUNS = {
     'runs/20261009_102648_repair': ('v5 repair', '2 regimes, normal frozen at v4 single'),
     'runs/20261009_154956_single_split': ('v6 GA', 'single model, splitting fitness, GA'),
     'runs/20261009_154956_single_cem_split': ('v6 CEM', 'single model, splitting fitness, cross-entropy'),
+    'runs/20261009_201504_single_split': ('v7 single', '8 features (+landing height, eroded cells, S/Z fit), splitting fitness, GA'),
 }
 OPTIMIZER_SCREEN = 'results/compare_splitting_20261009_162211.json'   # 150 splitting estimates
 OPTIMIZER_FULL = 'results/compare_20261009_180915.json'               # 1000 full games, v4 vs v6 GA
+V7_SCREEN = 'results/compare_splitting_20261009_210541.json'          # 200 splitting estimates, v4 vs v7
+V7_PAIR = {'single_v4', 'single_v7'}                                   # full games: newest compare of exactly these
 # Measured with tetris/splitting.py-style episodes on single_v4 from clean boards (160 per level)
 LADDER = [{'holes': 2, 'pieces': 108, 'p_death': 0.0}, {'holes': 4, 'pieces': 518, 'p_death': 0.001},
           {'holes': 6, 'pieces': 2324, 'p_death': 0.001}, {'holes': 8, 'pieces': 10488, 'p_death': 0.004},
@@ -62,7 +65,7 @@ MAIN_COMPARE = 'results/compare_20261008_235146.json'      # all models, 50 game
 ABLATION_V4 = 'results/compare_20261009_102631.json'       # drop one feature from single_v4
 LINES_ABLATION = 'runs/ablation/compare_20261008_210928.json'
 REPAIR_COMPARES = ['results/compare_20261009_130945.json']  # + the newest 1000-game one if present
-MODELS = ['baseline_single_v1', 'single_v2', 'regime_v2', 'single_v4', 'regime_v4', 'repair_v5']
+MODELS = ['baseline_single_v1', 'single_v2', 'regime_v2', 'single_v4', 'regime_v4', 'repair_v5', 'single_v7']
 
 
 def load_json(path):
@@ -247,12 +250,19 @@ def main():
     print(f'Wrote docs/index.html ({os.path.getsize("docs/index.html") / 1e3:.0f} kB)')
 
 
+def newest_compare(models):
+    """Newest results/compare_*.json comparing exactly these models (None if there is none)."""
+    paths = [p for p in sorted(glob.glob('results/compare_2*.json')) if set(load_json(p)['models']) == models]
+    return paths[-1] if paths else None
+
+
 def collect():
     rng = random.Random(1)
     repair = list(REPAIR_COMPARES)
     for path in sorted(glob.glob('results/compare_*.json')):
         if path not in repair and set(load_json(path)['models']) == {'single_v4', 'repair_v5'}:
             repair.append(path)
+    v7_full = newest_compare(V7_PAIR)
     data = {
         'built': date.today().isoformat(),
         'runs': training_runs(),
@@ -269,9 +279,14 @@ def collect():
             'screen': load_json(OPTIMIZER_SCREEN) if os.path.exists(OPTIMIZER_SCREEN) else None,
             'full': compare_summary(OPTIMIZER_FULL) if os.path.exists(OPTIMIZER_FULL) else None,
         },
+        'v7': {
+            'screen': load_json(V7_SCREEN) if os.path.exists(V7_SCREEN) else None,
+            'full': compare_summary(v7_full) if v7_full else None,
+        },
     }
-    for d in data['optimizer']['screen']['models'].values() if data['optimizer']['screen'] else []:
-        d.pop('log_pieces', None)
+    for screen in (data['optimizer']['screen'], data['v7']['screen']):
+        for d in screen['models'].values() if screen else []:
+            d.pop('log_pieces', None)
     return data
 
 

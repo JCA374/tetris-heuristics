@@ -1,11 +1,12 @@
 # Tetris AI: heuristics, data-driven features and noise-aware training
 
-A Tetris bot that scores every possible drop with a weighted sum of board
-features (height, holes, bumpiness, wells, hole depth). The weights are tuned
-by a genetic algorithm or the cross-entropy method. The project has gone from
-1,785 to about 500,000 lines per game by recording how the bot dies,
-finding the features that predict it, and measuring every change on held-out
-games.
+A Tetris bot that scores every possible drop with a weighted sum of features:
+board features (holes, bumpiness, wells, ...) and move features (landing
+height, S/Z fit). The weights are tuned by a genetic algorithm. The project has
+gone from 1,785 to **over 2.5 million lines per game** by recording how the bot
+dies, finding the features that predict it, and measuring every change on
+held-out games. That worked twice: two board features took it to ~500,000
+lines, three move features then multiplied that by about 5.
 
 **Current focus: one weight set (single model).** The regime-switching
 experiments (different weights per board situation) are finished; they never
@@ -26,9 +27,9 @@ Python engine, which remains the fallback when no compiler is available.
 
 ```bash
 python demo.py                                  # watch the best model in models/
-python demo.py --model models/single_v4.json
+python demo.py --model models/single_v7.json
 python demo.py --list                           # all models and their weights
-python demo_pygame.py --model models/single_v4.json   # left half of the screen; UP/DOWN speed, M = max (~100k moves/s on an idle machine); slows down by itself at 14 holes
+python demo_pygame.py --model models/single_v7.json   # left half of the screen; UP/DOWN speed, M = max (~100k moves/s on an idle machine); slows down by itself at 14 holes
 
 python -m pytest tests                          # test suite (~1 min)
 ```
@@ -59,8 +60,8 @@ python experiments/record_games.py models/single_v4.json --games 500
 python experiments/make_start_states.py runs/games/single_v4.jsonl.gz      # -> runs/starts/single_v4.json
 
 # train the single model; optimizer: ga (default) or cem (cross-entropy method)
-python training/train.py --model single --features height,holes,bumpiness,wells,hole_depth \
-    --init models/single_v4.json --fitness splitting --optimizer cem --workers 8 --out models/X.json
+python training/train.py --model single --features holes,bumpiness,wells,landing_height,sz_fit \
+    --init models/single_v7.json --starts runs/starts/single_v7.json --fitness splitting --workers 8 --out models/X.json
 python training/train.py --model single --fitness games --games 8      # full games as fitness
 python training/train.py --model single --quick                        # smoke test
 python training/watch.py                    # live plot (5-min refresh + button, --text for terminal)
@@ -104,7 +105,8 @@ paired). `*` = the 95% CI of the paired difference excludes 0.
 
 | model | features | mean lines | median | note |
 |---|---|---:|---:|---|
-| `single_v4` | 5 (no lines) | **493,138** | 336,772 | 1,000 games, 10M-piece cap (50 games: 413,254) |
+| `single_v7` | 8 (+landing height, eroded cells, S/Z fit) | **≥ 2,498,084** | 2,831,910 | 200 games, 10M-piece cap: 82 games capped, so a lower bound |
+| `single_v4` | 5 (no lines) | 493,138 | 336,772 | 1,000 games, 10M-piece cap (50 games: 413,254) |
 | `single_v3_gen11` | 6 (lines ≈ 0) | 430,538 | 333,190 | 50 games; same model as v4 in practice |
 | `single_v2` | 4 (lines fixed) | 2,527 | 1,432 | 50 games |
 | `baseline_single_v1` | 3 effective (old lines bug) | 1,785 | 1,467 | 50 games; the old GA reported 5,968: winner's curse |
@@ -112,6 +114,11 @@ paired). `*` = the 95% CI of the paired difference excludes 0.
 What made the difference:
 - **Features found from data.** Adding `wells` and `hole_depth`, found by
   analysing 500 recorded baseline deaths, gave ~200× more lines (2.5k → 413k+).
+- **Move features, found the same way (v7).** The single_v4 analysis showed S/Z
+  pieces make the holes and other pieces made holes even when a hole-free spot
+  existed. `landing_height`, `eroded_cells` and `sz_fit` gave **+407% (95% CI
+  +363%..+451%), 176 wins / 24 losses** on 200 paired held-out games, even with
+  41% of v7's games stopped at the cap.
 - **Honest measurement.** Per-game results spread as wide as the mean, so 5-game
   scores are meaningless; every comparison is paired on held-out seeds.
 - **Feature ablation (single_v4, 50 games):** without holes, bumpiness or wells
@@ -138,8 +145,24 @@ generations), both starting from single_v4:
   false positive, so splitting is a screen and full games decide.
 - Conclusion: single_v4 is as good as these 5 features get. The next gains have
   to come from new information (move features, lookahead), not the optimizer.
+  The move features then delivered exactly that (below).
   The GA is the default (its archive re-tests promising genomes; plain CEM
   needs far more evaluations per sample under this much noise).
+
+### Move features (single_v7)
+
+Trained from single_v4 with 8 features, same GA + splitting setup (40
+generations × 30 individuals × 3 estimates, 45 minutes):
+- Splitting screen: **11.1× (95% CI 9.5–13.0×)** estimated lines vs single_v4.
+- Full games, 200 pairs, 10M-piece cap: single_v4 492,628, single_v7 ≥ 2,498,084
+  mean lines (median 2.83M), **+407%, 176/24 wins**. 82 v7 games hit the cap.
+- Weights: `landing_height` replaced `height` (height → 0), `sz_fit` +1.15,
+  `eroded_cells` and `hole_depth` 0; holes −8.6, wells −1.0, bumpiness −0.77.
+- The splitting estimate overstates v7 (~6M lines) but ranks it right. Unlike
+  the +18% optimizer result, this effect is far outside the noise on both.
+- Next: `single_v8` retrains from v7 with only the 5 weights that are nonzero,
+  on start boards from v7's own play; then a feature ablation and a failure
+  analysis of v7.
 
 ### Regime switching (concluded)
 

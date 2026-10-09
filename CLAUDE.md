@@ -5,9 +5,11 @@ Guidance for Claude Code when working in this repository.
 ## Project
 
 Heuristic Tetris AI (no deep learning). Every drop is scored with a weighted sum
-of board features (height, holes, bumpiness, wells, hole_depth; `lines` exists
-but is 0 in current models), and the weights are tuned with a GA or the
-cross-entropy method. **Focus: the single model (one weight set).** The
+of features: board features (height, holes, bumpiness, wells, hole_depth) and
+move features (landing_height, eroded_cells, sz_fit; added in v7, ~5× more
+lines). `lines` exists but is 0 in current models. Best model: `single_v7`
+(v8 training without the zero-weight features). Weights are tuned with a GA
+(default) or the cross-entropy method. **Focus: the single model (one weight set).** The
 regime-switching research is concluded (never beat the single model); keep its
 code working (old models must load and play) but do not develop it further.
 See README.md for results and docs/HEURISTICS.md for the design.
@@ -19,8 +21,8 @@ python -m pytest tests                                    # all tests (~1 min)
 python demo.py [--model models/X.json] [--delay 0]        # terminal demo
 python experiments/record_games.py models/X.json --games 500         # board logs (fast, C core)
 python experiments/make_start_states.py runs/games/X.jsonl.gz        # clean start boards for splitting
-python training/train.py --model single --features height,holes,bumpiness,wells,hole_depth \
-    --init models/X.json --fitness splitting --optimizer cem|ga --workers 8 --out models/Y.json
+python training/train.py --model single --features holes,bumpiness,wells,landing_height,sz_fit \
+    --init models/X.json --starts runs/starts/X.json --fitness splitting --optimizer cem|ga --workers 8 --out models/Y.json
 python training/train.py --model single --quick           # smoke test
 python experiments/compare_splitting.py models/A.json models/B.json --estimates 100   # fast screen
 python experiments/compare.py models/A.json models/B.json --games 1000 --max-pieces 10000000   # final
