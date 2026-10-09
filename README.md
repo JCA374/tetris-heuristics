@@ -72,7 +72,7 @@ python training/watch.py                    # live plot (5-min refresh + button,
 # fast screen with splitting estimates (paired, held-out estimate seeds)
 python experiments/compare_splitting.py models/single_v4.json models/X.json --estimates 100
 # final answer: full games, paired, held-out seeds (>= 1000 games to see ~10% differences)
-python experiments/compare.py models/single_v4.json models/X.json --games 1000 --max-pieces 10000000
+python experiments/compare.py models/single_v4.json models/X.json --games 1000 --max-pieces 10000000   # running averages every 60s (--report-every)
 ```
 
 ## Analyse games for new features

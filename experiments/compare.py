@@ -73,6 +73,30 @@ def paired(ref, other):
     }
 
 
+def running_report(names, results, seeds, ref_index, done, total, elapsed):
+    """Interim block: mean per model so far, and the paired difference vs the reference on the
+    seeds both have finished (normal-approximation 95% CI; the final report uses the bootstrap)."""
+    eta = elapsed / done * (total - done) if done else 0
+    out = [f'--- {done}/{total} games, {elapsed / 60:.1f} min elapsed, ~{eta / 60:.0f} min left ---']
+    ref = results[ref_index]
+    for m, name in enumerate(names):
+        vals = [r['lines'] for r in results[m].values()]
+        if not vals:
+            continue
+        line = f'  {name:24s} n={len(vals):5d}  mean {statistics.mean(vals):>12,.0f}  median {statistics.median(vals):>12,.0f}'
+        if m != ref_index:
+            both = [s for s in seeds if s in results[m] and s in ref]
+            if len(both) >= 2:
+                diffs = [results[m][s]['lines'] - ref[s]['lines'] for s in both]
+                mean = statistics.mean(diffs)
+                half = 1.96 * statistics.stdev(diffs) / len(diffs) ** 0.5
+                pct = mean / max(statistics.mean(ref[s]['lines'] for s in both), 1)
+                sig = ' *' if abs(mean) > half else ''
+                line += f'  diff {mean:>+11,.0f} ({pct:+.1%}) ±{half:,.0f}{sig}'
+        out.append(line)
+    return '\n'.join(out)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('models', nargs='+', help='model JSON files')
@@ -83,6 +107,8 @@ def main():
     parser.add_argument('--workers', '-w', type=int, default=os.cpu_count() or 1)
     parser.add_argument('--ref', help='reference model for paired tests (default: first model)')
     parser.add_argument('--out-dir', default='results')
+    parser.add_argument('--report-every', type=float, default=60,
+                        help='seconds between running averages (0 = off)')
     args = parser.parse_args()
 
     names = [os.path.splitext(os.path.basename(p))[0] for p in args.models]
@@ -98,13 +124,18 @@ def main():
     tasks = [(m, policies[m].to_dict(), s, args.max_pieces, args.lookahead, args.randomizer)
              for s in seeds for m in range(len(policies))]
     results = [dict() for _ in policies]
-    start = time.time()
+    start = last_report = time.time()
     done = 0
     with mp.Pool(args.workers) as pool:
         for m, result in pool.imap_unordered(_play, tasks):
             results[m][result['seed']] = result
             done += 1
-            print(f"\r  {done}/{len(tasks)} games  ({time.time() - start:.0f}s)", end='', flush=True)
+            now = time.time()
+            if args.report_every and now - last_report >= args.report_every:
+                last_report = now
+                print('\r' + running_report(names, results, seeds, ref_index, done, len(tasks), now - start),
+                      flush=True)
+            print(f"\r  {done}/{len(tasks)} games  ({now - start:.0f}s)", end='', flush=True)
     print()
 
     lines = [[results[m][s]['lines'] for s in seeds] for m in range(len(policies))]
