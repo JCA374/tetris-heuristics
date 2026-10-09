@@ -117,7 +117,7 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
   <nav>
     <a href="#bot">The bot</a><a href="#noise">Measuring</a><a href="#training">Training</a>
     <a href="#discovery">Discovery</a><a href="#results">Results</a><a href="#regimes">Regimes</a>
-    <a href="#limits">Limits</a><a href="#next">Next</a>
+    <a href="#limits">Limits</a><a href="#method">Training method</a><a href="#next">Next</a>
   </nav>
   <button class="theme-btn" id="theme" type="button" aria-label="Toggle light or dark theme">Theme</button>
 </div></header>
@@ -314,16 +314,50 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
   </div>
 </section>
 
+<section id="method">
+  <div class="kicker">8 · Training method</div>
+  <h2>Measuring the rare event through the common ones</h2>
+  <div class="prose">
+    <p>A strong model dies about once per million pieces, so a full game is one expensive, noisy data point. But
+    deaths follow a ladder: the board gets a few holes every few hundred pieces, and only rarely climbs all the way
+    up. <strong>Multilevel splitting</strong> measures each rung separately from short episodes, starting at clean
+    boards and branching fresh continuations at 6, 10, 14 and 18 holes, and multiplies the chances. The crisis
+    boards come from the evaluated model's own play, so there is no fixed set of crisis boards to overfit.</p>
+  </div>
+  <div class="grid2">
+    <div class="figure">
+      <h3>The ladder to game over (single_v4)</h3>
+      <p class="caption">Pieces until the board first reaches N holes, from a clean board (log scale), and the chance of dying
+      from there. Each rung is common; only the product is rare.</p>
+      <div class="chart" id="c-ladder"></div>
+    </div>
+    <div class="figure">
+      <h3>Does the estimate agree with full games?</h3>
+      <p class="caption">Splitting estimate (median of 12, ~4 CPU-seconds each) vs. the full-game mean (50 held-out games),
+      log-log. Same order and similar gaps; weak models are underestimated about 2×. One estimate is as informative as
+      ~8 full games.</p>
+      <div class="chart" id="c-check"></div>
+    </div>
+  </div>
+  <div class="figure">
+    <h3>Optimizer test: GA vs cross-entropy, both from single_v4</h3>
+    <p class="caption" id="opt-caption"></p>
+    <div class="chart" id="c-optimizer"></div>
+  </div>
+  <div class="callout"><strong>Conclusion:</strong> neither optimizer beats single_v4 on full games. The 5-feature
+  linear model is as good as it gets, so the next gains have to come from new information: move features and the
+  next-piece preview.</div>
+</section>
+
 <section id="next">
-  <div class="kicker">8 · Next</div>
+  <div class="kicker">9 · Next</div>
   <h2>What the data suggests next</h2>
   <ol class="next prose">
     <li><strong>Move features.</strong> Landing height and eroded cells (Dellacherie). They describe the move, not the
     board, so they can target the 93% of non-S/Z hole moves where a hole-free option existed.</li>
-    <li><strong>Crisis training for repair.</strong> Train the repair regime from recorded crisis boards with fresh
-    pieces: hundreds of times cheaper than full games, scored by recovery rate.</li>
     <li><strong>Lookahead.</strong> Use the next-piece preview, which targets the forced S/Z holes.</li>
-    <li><strong>Less noisy training.</strong> More, shorter episodes per individual, or CMA-ES / cross-entropy search.</li>
+    <li><strong>Train both with splitting fitness</strong> and confirm on 1,000+ full games. Regime switching is
+    concluded: it never beat one weight set.</li>
   </ol>
   <div class="callout">The method behind every chart here is written up in
   <a href="ANALYSIS_METHOD.md">docs/ANALYSIS_METHOD.md</a>: record failures with context, compute candidate signals,
@@ -419,12 +453,14 @@ function tiles() {
   const base1 = m.baseline_single_v1, best = m.single_v4;
   const latestRepair = DATA.repair.length ? DATA.repair[DATA.repair.length - 1] : null;
   const rv = latestRepair && latestRepair.models.find(d => d.name === 'repair_v5');
+  const full = DATA.optimizer && DATA.optimizer.full ? DATA.optimizer.full.models.find(d => d.name === 'single_v4') : null;
+  const bestMean = full ? full.mean : best.mean;
   const items = [
     ['Original model', fmt(base1.mean), 'lines per game (mean of 50 held-out games)'],
-    ['Best model now', fmt(best.mean), `single_v4, ${Math.round(best.mean / base1.mean)}× the original`],
+    ['Best model now', fmt(bestMean), `single_v4, ${full ? '1,000' : '50'} held-out games, ${Math.round(bestMean / base1.mean)}× the original`],
     ['Reported by the old GA', '5,968', 'true mean of that model: ' + fmt(base1.mean)],
     ['Best regime model', rv ? (rv.diff >= 0 ? '+' : '') + pct(rv.diff / latestRepair.models[0].mean) : 'n/a',
-      rv ? `vs single_v4, ${rv.significant ? 'significant' : 'not significant'} (${latestRepair.settings.games} games)` : ''],
+      rv ? `vs single_v4, ${rv.significant ? 'significant' : 'not significant'} (${latestRepair.settings.games} games). Research concluded.` : ''],
   ];
   document.getElementById('tiles').innerHTML = items.map(([l, v, n]) =>
     `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div><div class="note">${n}</div></div>`).join('');
@@ -486,10 +522,12 @@ function training() {
   const run = DATA.runs.find(r => r.id === currentRun);
   const h = run.history;
   document.getElementById('run-title').textContent = `${run.label}: ${run.story}`;
-  const capLines = run.cap * 0.4;
-  document.getElementById('run-caption').textContent =
-    `Population ${run.population}, ${run.games} games per individual per generation, ${h.length} generations, ` +
-    `cap ${fmt(run.cap)} pieces (≈ ${fmt(capLines)} lines). Features: ${run.features.join(', ')}.`;
+  const capLines = run.cap ? run.cap * 0.4 : Infinity;
+  document.getElementById('run-caption').textContent = run.fitness === 'splitting'
+    ? `Population ${run.population}, ${run.games} splitting estimates per individual per generation, ${h.length} generations, ` +
+      `optimizer ${run.optimizer.toUpperCase()}. Fitness: estimated lines per game (geometric mean). Features: ${run.features.join(', ')}.`
+    : `Population ${run.population}, ${run.games} games per individual per generation, ${h.length} generations, ` +
+      `cap ${fmt(run.cap)} pieces (≈ ${fmt(capLines)} lines). Features: ${run.features.join(', ')}.`;
   const [c1, c2] = series();
   legend('run-legend', [['leader (mean over all its games)', c1, 'line'], ['population mean', css('--ink-2'), 'dash'], ['best of generation', c2, 'dot']]);
   const pts = h.flatMap(d => [{ g: d.g, v: d.best, k: 'best' }, { g: d.g, v: d.mean, k: 'mean' }].concat(d.leader != null ? [{ g: d.g, v: d.leader, k: 'leader' }] : []));
@@ -505,7 +543,8 @@ function training() {
   if (capLines < maxV * 1.6) marks.push(
     Plot.ruleY([capLines], { stroke: css('--critical'), strokeDasharray: '2,3' }),
     Plot.text([capLines], { y: d => d, frameAnchor: 'right', dy: -8, text: () => 'piece cap', fill: css('--critical') }));
-  mount('c-run', base(el, { height: 300, x: { label: 'generation →' }, y: { label: '↑ lines per game', tickFormat: '~s', zero: true }, marks }));
+  mount('c-run', base(el, { height: 300, x: { label: 'generation →' },
+    y: { label: run.fitness === 'splitting' ? '↑ estimated lines per game' : '↑ lines per game', tickFormat: '~s', zero: true }, marks }));
 
   const thr = h.flatMap(d => Object.entries(d.thresholds).map(([k, v]) => ({ g: d.g, rule: k.replace('.threshold', ''), v })));
   const thrEl = document.getElementById('c-run-thr');
@@ -609,12 +648,14 @@ function diffChart(id, comp, label) {
   const rows = comp.models.slice(1).map(d => ({ name: d.name, diff: d.diff / ref.mean, lo: d.diff_ci[0] / ref.mean, hi: d.diff_ci[1] / ref.mean, sig: d.significant, mean: d.mean }));
   diffRows(id, rows, label);
 }
-function diffRows(id, rows, label) {
-  rows.sort((a, b) => b.diff - a.diff);
+function diffRows(id, rows, label, opts = {}) {
+  if (!opts.keepOrder) rows.sort((a, b) => b.diff - a.diff);
   const el = document.getElementById(id);
-  const lo = Math.min(-1, d3.min(rows, d => d.lo)), hi = Math.max(0.3, d3.max(rows, d => d.hi));
+  const floor = opts.floor ?? -1;
+  const lo = Math.min(floor, d3.min(rows, d => d.lo)), hi = Math.max(0.3, d3.max(rows, d => d.hi));
+  const longest = d3.max(rows, d => label(d).length);
   mount(id, base(el, {
-    height: 42 * rows.length + 60, marginLeft: 160,
+    height: 42 * rows.length + 60, marginLeft: Math.max(120, Math.min(260, longest * 6.6 + 16)),
     x: { domain: [lo * 1.05, hi * 1.1], tickFormat: '+.0%', label: 'change in mean lines (95% interval) →', grid: true },
     y: { domain: rows.map(label), label: null },
     marks: [gridX(), Plot.ruleX([0], { stroke: css('--ink') }),
@@ -679,8 +720,59 @@ function limits() {
   if (r4) document.getElementById('boards-v4').replaceChildren(...r4.boards.map(b => drawBoard(b.board, `${d3.format('.3s')(b.lines)} lines`)));
 }
 
+function method() {
+  const sp = DATA.splitting;
+  if (sp) {
+    let el = document.getElementById('c-ladder');
+    mount('c-ladder', base(el, {
+      height: 270, marginTop: 40, x: { label: 'holes reached', type: 'band', domain: sp.ladder.map(d => `≥ ${d.holes}`) },
+      y: { type: 'log', label: '↑ pieces until it happens', tickFormat: '~s', ticks: [10, 100, 1e3, 1e4, 1e5] },
+      marks: [Plot.gridY([10, 100, 1e3, 1e4, 1e5], { stroke: css('--grid'), strokeOpacity: 1 }),
+        Plot.barY(sp.ladder, { x: d => `≥ ${d.holes}`, y1: 10, y2: 'pieces', fill: css('--s1'), inset: 6, rx: 3,
+          tip: { ...tipStyle(), title: d => `≥ ${d.holes} holes after ${fmt(d.pieces)} pieces\nP(death from there) ${d3.format('.1%')(d.p_death)}` } }),
+        Plot.text(sp.ladder, { x: d => `≥ ${d.holes}`, y: 'pieces', text: d => `${fmt(d.pieces)} · die ${d.p_death ? d3.format('.1%')(d.p_death) : '0%'}`, dy: -8, fill: css('--ink-2') })],
+    }));
+    const pts = sp.check;
+    const lo = d3.min(pts, d => Math.min(d.estimated, d.real)) / 2, hi = d3.max(pts, d => Math.max(d.estimated, d.real)) * 2;
+    el = document.getElementById('c-check');
+    mount('c-check', base(el, {
+      height: 280, marginLeft: 56,
+      x: { type: 'log', domain: [lo, hi], label: 'full-game mean lines →', tickFormat: '~s', ticks: [1e3, 1e4, 1e5, 1e6] },
+      y: { type: 'log', domain: [lo, hi], label: '↑ splitting estimate (lines)', tickFormat: '~s', ticks: [1e3, 1e4, 1e5, 1e6] },
+      marks: [Plot.gridX([1e3, 1e4, 1e5, 1e6], { stroke: css('--grid'), strokeOpacity: 1 }),
+        Plot.gridY([1e3, 1e4, 1e5, 1e6], { stroke: css('--grid'), strokeOpacity: 1 }),
+        Plot.line([[lo, lo], [hi, hi]], { stroke: css('--ink-3'), strokeDasharray: '3,3' }),
+        Plot.dot(pts, { x: 'real', y: 'estimated', fill: css('--s1'), r: 5, stroke: css('--surface'), strokeWidth: 2,
+          tip: { ...tipStyle(), title: d => `${d.model}\nfull games ${fmt(d.real)}\nestimate ${fmt(d.estimated)}` } }),
+        // clustered points: one label above, one left, one below; the weak models to the right
+        Plot.text(pts.filter(d => d.model === 'single_v4'), { x: 'real', y: 'estimated', text: 'model', dy: -14, fill: css('--ink-2') }),
+        Plot.text(pts.filter(d => d.model === 'without hole depth'), { x: 'real', y: 'estimated', text: 'model', dx: -10, textAnchor: 'end', fill: css('--ink-2') }),
+        Plot.text(pts.filter(d => d.model === 'without height'), { x: 'real', y: 'estimated', text: 'model', dy: 16, fill: css('--ink-2') }),
+        Plot.text(pts.filter(d => d.model === 'single_v2'), { x: 'real', y: 'estimated', text: 'model', dx: 9, dy: -8, textAnchor: 'start', fill: css('--ink-2') }),
+        Plot.text(pts.filter(d => d.model === 'baseline_single_v1'), { x: 'real', y: 'estimated', text: 'model', dx: 9, dy: 8, textAnchor: 'start', fill: css('--ink-2') })],
+    }));
+  }
+  const op = DATA.optimizer;
+  if (op && op.screen && op.full) {
+    const rows = [];
+    const short = n => n.includes('cem') ? 'CEM' : 'GA';
+    for (const [name, d] of Object.entries(op.screen.models)) {
+      if (d.ratio == null) continue;
+      rows.push({ name: `${short(name)} · splitting screen (${op.screen.estimates})`, diff: d.ratio - 1, lo: d.ratio_ci95[0] - 1, hi: d.ratio_ci95[1] - 1 });
+    }
+    const ref = op.full.models[0];
+    for (const d of op.full.models.slice(1)) rows.push({ name: `${short(d.name)} · ${fmt(op.full.settings.games)} full games`,
+      diff: d.diff / ref.mean, lo: d.diff_ci[0] / ref.mean, hi: d.diff_ci[1] / ref.mean });
+    rows.sort((a, b) => a.name.localeCompare(b.name));
+    document.getElementById('opt-caption').textContent =
+      'Same budget: 24 individuals × 2 splitting estimates × 25 generations. Change vs single_v4 with 95% interval. ' +
+      'The GA model looked 18% better on the splitting screen, but 1,000 full games show no difference: the screen finds candidates, full games decide.';
+    diffRows('c-optimizer', rows, d => d.name, { floor: -0.3, keepOrder: true });
+  }
+}
+
 function renderAll() {
-  tiles(); weights(); noise(); runButtons(); training(); discovery(); results(); regimes(); limits();
+  tiles(); weights(); noise(); runButtons(); training(); discovery(); results(); regimes(); limits(); method();
   document.getElementById('footer').innerHTML =
     `Built ${DATA.built} from the experiment logs with <code>experiments/build_site.py</code>. ` +
     `Code and method: <a href="https://github.com/JCA374/tetris-heuristics">github.com/JCA374/tetris-heuristics</a>.`;

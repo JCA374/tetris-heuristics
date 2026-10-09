@@ -125,6 +125,22 @@ What made the difference:
   most holes; over half of those holes were unavoidable without knowing the
   next piece.
 
+### Optimizer test (single model, splitting fitness)
+
+GA vs cross-entropy, same budget (24 individuals × 2 splitting estimates × 25
+generations), both starting from single_v4:
+- Cross-entropy drifted (stronger holes, weaker height penalty) and picked lucky
+  samples: 1.3–1.5M estimated lines in training, 0.33–0.57M on validation.
+  Splitting screen vs single_v4: 0.91× (0.79–1.03).
+- The GA stayed next to single_v4 (holes −7.720 vs −7.737). Splitting screen:
+  1.18× (1.04–1.33), but **1,000 full games: +0.3% (95% CI −8%..+9%),
+  487 wins / 511 losses: no difference.** The borderline splitting result was a
+  false positive, so splitting is a screen and full games decide.
+- Conclusion: single_v4 is as good as these 5 features get. The next gains have
+  to come from new information (move features, lookahead), not the optimizer.
+  The GA is the default (its archive re-tests promising genomes; plain CEM
+  needs far more evaluations per sample under this much noise).
+
 ### Regime switching (concluded)
 
 The original question was whether different weight sets per situation (e.g.

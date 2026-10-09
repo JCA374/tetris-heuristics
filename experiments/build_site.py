@@ -18,6 +18,7 @@ rebuild and commit docs/index.html after new results.
 import glob
 import gzip
 import json
+import math
 import os
 import random
 import sys
@@ -40,7 +41,23 @@ RUNS = {
     'runs/20261008_213752_single': ('v4 single', '5 features, C engine, 1M-piece cap'),
     'runs/20261008_213752_regime': ('v4 regime', '5 features, 3 regimes, 1M-piece cap'),
     'runs/20261009_102648_repair': ('v5 repair', '2 regimes, normal frozen at v4 single'),
+    'runs/20261009_154956_single_split': ('v6 GA', 'single model, splitting fitness, GA'),
+    'runs/20261009_154956_single_cem_split': ('v6 CEM', 'single model, splitting fitness, cross-entropy'),
 }
+OPTIMIZER_SCREEN = 'results/compare_splitting_20261009_162211.json'   # 150 splitting estimates
+OPTIMIZER_FULL = 'results/compare_20261009_180915.json'               # 1000 full games, v4 vs v6 GA
+# Measured with tetris/splitting.py-style episodes on single_v4 from clean boards (160 per level)
+LADDER = [{'holes': 2, 'pieces': 108, 'p_death': 0.0}, {'holes': 4, 'pieces': 518, 'p_death': 0.001},
+          {'holes': 6, 'pieces': 2324, 'p_death': 0.001}, {'holes': 8, 'pieces': 10488, 'p_death': 0.004},
+          {'holes': 10, 'pieces': 29210, 'p_death': 0.021}]
+# Splitting estimate (median of 12, pieces per death / 2.5) vs full-game mean lines (50 held-out games)
+ESTIMATOR_CHECK = [
+    {'model': 'single_v4', 'estimated': 1449010 / 2.5, 'real': 413254},
+    {'model': 'without hole depth', 'estimated': 1223742 / 2.5, 'real': 340279},
+    {'model': 'without height', 'estimated': 945267 / 2.5, 'real': 246553},
+    {'model': 'single_v2', 'estimated': 3435 / 2.5, 'real': 2527},
+    {'model': 'baseline_single_v1', 'estimated': 2950 / 2.5, 'real': 1785},
+]
 MAIN_COMPARE = 'results/compare_20261008_235146.json'      # all models, 50 games, 3M cap
 ABLATION_V4 = 'results/compare_20261009_102631.json'       # drop one feature from single_v4
 LINES_ABLATION = 'runs/ablation/compare_20261008_210928.json'
@@ -105,12 +122,15 @@ def training_runs():
             continue
         c = load_json(path)
         p = c['parameters']
+        split = str(c.get('fitness', 'lines')).startswith('est.')
+        conv = (lambda v: None if v is None else math.exp(v) / 2.5) if split else (lambda v: v)
         runs.append({
             'id': os.path.basename(run_dir), 'label': label, 'story': story, 'template': c['template'],
             'features': c.get('features') or ['height', 'lines', 'holes', 'bumpiness'],
-            'population': p['population_size'], 'games': p['games'], 'cap': p['max_pieces'],
-            'history': [{'g': h['generation'], 'best': h['best'], 'mean': h['mean'],
-                         'leader': h['leader_mean'], 'leader_games': h['leader_games'],
+            'population': p['population_size'], 'games': p['games'], 'cap': None if split else p['max_pieces'],
+            'fitness': 'splitting' if split else 'games', 'optimizer': c.get('optimizer', 'ga'),
+            'history': [{'g': h['generation'], 'best': conv(h['best']), 'mean': conv(h['mean']),
+                         'leader': conv(h['leader_mean']), 'leader_games': h['leader_games'],
                          'thresholds': {k: v for k, v in (h['leader_genome'] or h['best_genome']).items()
                                         if k.endswith('.threshold')}}
                         for h in c['history']],
@@ -244,7 +264,14 @@ def collect():
         'recordings': {m: recordings(m, rng) for m in ('baseline_single_v1', 'single_v4', 'regime_v4')},
         'crisis': crisis_recovery(rng),
         'models': models(),
+        'splitting': {'ladder': LADDER, 'check': ESTIMATOR_CHECK},
+        'optimizer': {
+            'screen': load_json(OPTIMIZER_SCREEN) if os.path.exists(OPTIMIZER_SCREEN) else None,
+            'full': compare_summary(OPTIMIZER_FULL) if os.path.exists(OPTIMIZER_FULL) else None,
+        },
     }
+    for d in data['optimizer']['screen']['models'].values() if data['optimizer']['screen'] else []:
+        d.pop('log_pieces', None)
     return data
 
 
