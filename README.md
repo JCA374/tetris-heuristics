@@ -97,6 +97,11 @@ are the ones measured. `*` = the 95% CI of the paired difference excludes 0.
 **Answer to the research question (so far): no.** A regime-switching policy
 did not beat a single weight set. With 4 features it was +6% (not
 significant); with 5 features it is significantly *worse* (−40%).
+- **2-regime test (`repair_v5`):** normal frozen at single_v4, the GA evolved
+  only the repair weights + hole threshold. On 1,000 paired games (10M-piece
+  cap): +9,748 lines (+2%, 95% CI −6%..+10%), 490 wins / 503 losses: no
+  difference. The GA kept the threshold at 7 holes, so repair is used in 1% of
+  moves, too late to matter. (A 100-game test had shown +8.5%: noise.)
 - `regime_v4` hardly switches: normal 98%, repair (holes ≥ 7) 2%, danger
   (height ≥ 15) 0%. Its *normal* weights drifted away from the good single
   model (height 0, hole_depth −0.9), and that is where it lost.
