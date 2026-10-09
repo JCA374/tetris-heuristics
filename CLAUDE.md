@@ -57,6 +57,8 @@ python experiments/analyze_games.py runs/games/X.jsonl.gz            # feature r
   make sure moves stay identical (seeded games give the same lines).
 - To compare models, always use `experiments/compare.py` (paired, held-out seeds,
   ≥ 50 games). Single games or 5-game means are far too noisy.
+- Analysis/feature research: follow docs/ANALYSIS_METHOD.md (the user's preferred
+  report style: self-contained HTML, one question per chart, dataviz palette).
 - New features: add to `FEATURES`/`board_stats`/`evaluate` in `tetris/features.py`
   and to `WEIGHT_BOUNDS` in `training/ga.py`, **and** to `fastcore.c` (`N_FEAT`,
   `board_stats`, `evaluate`) and `fastcore.py` (the FEATURES assert); run

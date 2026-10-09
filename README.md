@@ -44,6 +44,11 @@ python experiments/record_games.py models/baseline_single_v1.json --games 500
 python experiments/analyze_games.py runs/games/baseline_single_v1.jsonl.gz   # -> results/game_analysis/<model>/report.html
 ```
 
+The report is how `wells` and `hole_depth` were found. The method (record
+failures, measure warning power and added information, then validate) is
+described in [docs/ANALYSIS_METHOD.md](docs/ANALYSIS_METHOD.md). Reuse it for
+future feature searches.
+
 Each training run writes `runs/<timestamp>_<model>/` (checkpoint, final model,
 `evolution.png`). Comparisons write `results/compare_<timestamp>.json`. Both
 folders are git-ignored. Models worth keeping go in `models/`.
