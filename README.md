@@ -3,10 +3,11 @@
 A Tetris bot that scores every possible drop with a weighted sum of features:
 board features (holes, bumpiness, wells, ...) and move features (landing
 height, S/Z fit). The weights are tuned by a genetic algorithm. The project has
-gone from 1,785 to **over 2.5 million lines per game** by recording how the bot
+gone from 1,785 to **over 4 million lines per game** by recording how the bot
 dies, finding the features that predict it, and measuring every change on
 held-out games. That worked twice: two board features took it to ~500,000
-lines, three move features then multiplied that by about 5.
+lines, three move features then multiplied that by about 5, and retraining
+with only the weights that matter added another 25%.
 
 **Current focus: one weight set (single model).** The regime-switching
 experiments (different weights per board situation) are finished; they never
@@ -27,9 +28,9 @@ Python engine, which remains the fallback when no compiler is available.
 
 ```bash
 python demo.py                                  # watch the best model in models/
-python demo.py --model models/single_v7.json
+python demo.py --model models/single_v8.json
 python demo.py --list                           # all models and their weights
-python demo_pygame.py --model models/single_v7.json   # left half of the screen; UP/DOWN speed, M = max (~100k moves/s on an idle machine); slows down by itself at 14 holes
+python demo_pygame.py --model models/single_v8.json   # left half of the screen; UP/DOWN speed, M = max (~100k moves/s on an idle machine); slows down by itself at 14 holes
 
 python -m pytest tests                          # test suite (~1 min)
 ```
@@ -105,7 +106,8 @@ paired). `*` = the 95% CI of the paired difference excludes 0.
 
 | model | features | mean lines | median | note |
 |---|---|---:|---:|---|
-| `single_v7` | 8 (+landing height, eroded cells, S/Z fit) | **≥ 2,498,084** | 2,831,910 | 200 games, 10M-piece cap: 82 games capped, so a lower bound |
+| `single_v8` | 5 (holes, bumpiness, wells, landing height, S/Z fit) | **≥ 4,280,028** | 3,656,003 | 243 games vs v7, 20M-piece cap: 66 capped (v7: 28) |
+| `single_v7` | 8 (+landing height, eroded cells, S/Z fit) | ≥ 2,498,084 | 2,831,910 | 200 games vs v4, 10M-piece cap: 82 capped; same 243 games as v8: ≥ 3,415,456 |
 | `single_v4` | 5 (no lines) | 493,138 | 336,772 | 1,000 games, 10M-piece cap (50 games: 413,254) |
 | `single_v3_gen11` | 6 (lines ≈ 0) | 430,538 | 333,190 | 50 games; same model as v4 in practice |
 | `single_v2` | 4 (lines fixed) | 2,527 | 1,432 | 50 games |
@@ -160,9 +162,20 @@ generations × 30 individuals × 3 estimates, 45 minutes):
   `eroded_cells` and `hole_depth` 0; holes −8.6, wells −1.0, bumpiness −0.77.
 - The splitting estimate overstates v7 (~6M lines) but ranks it right. Unlike
   the +18% optimizer result, this effect is far outside the noise on both.
-- Next: `single_v8` retrains from v7 with only the 5 weights that are nonzero,
-  on start boards from v7's own play; then a feature ablation and a failure
-  analysis of v7.
+- **Ablation** (v7 with one feature off, no retraining, splitting screen):
+  without `landing_height` 0.01×, with v4's `height` in its place 0.03×,
+  without `sz_fit` 0.70× (0.52–0.93). Landing height carries the gain; S/Z fit
+  adds ~30%.
+- **single_v8** = v7 retrained with only its 5 nonzero weights, on start boards
+  from v7's own play: splitting screen 1.32× (1.06–1.64); **243 full-game pairs,
+  20M-piece cap: +25% (95% CI +11%..+39%), 144/98 wins**, with more v8 games
+  capped (66 vs 28), so the true gap is larger. `sz_fit` grew to 1.67.
+- **Failure analysis of single_v7** (500 games, 470 deaths, mean 4.0M lines;
+  report in `docs/analysis/single_v7/report.html`): S/Z still make the most
+  holes but fewer (9.5% of their moves, v4 12%); spirals now start with the
+  surface degrading (the first move after the last healthy board made a hole
+  in 29% of games, v4 56%); **hole depth adds information again (+0.11)**,
+  while v7/v8 have it at 0. Next test: v9 = v8 + hole depth.
 
 ### Regime switching (concluded)
 

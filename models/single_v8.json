@@ -1,0 +1,47 @@
+{
+  "type": "single",
+  "rules": [
+    {
+      "name": "default"
+    }
+  ],
+  "weights": {
+    "default": {
+      "height": 0.0,
+      "lines": 0.0,
+      "holes": -8.146053929892755,
+      "bumpiness": -0.6487223893828236,
+      "wells": -1.076444232699786,
+      "hole_depth": 0.0,
+      "landing_height": -1.0269515505630407,
+      "eroded_cells": 0.0,
+      "sz_fit": 1.6676818885120652
+    }
+  },
+  "meta": {
+    "validation_mean": 16.777962871042885,
+    "validation_games": 30,
+    "train_mean": 17.229758257513044,
+    "train_games": 6,
+    "fitness": "est. lines per game (splitting)",
+    "optimizer": "ga",
+    "name": "single_v8",
+    "trained": "2026-10-09T23:19:19",
+    "run_dir": "runs/20261009_214729_single_split",
+    "generations": 40,
+    "population": 30,
+    "games_per_individual": 3,
+    "max_pieces": 20000,
+    "lookahead": false,
+    "randomizer": "random",
+    "init_model": "single_v7",
+    "features": [
+      "holes",
+      "bumpiness",
+      "wells",
+      "landing_height",
+      "sz_fit"
+    ],
+    "training_minutes": 91.8
+  }
+}

@@ -126,11 +126,11 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
 <main>
 <div class="hero">
   <div class="kicker">Data-driven learning, documented</div>
-  <h1>From 1,785 to over 2.5 million lines by looking at how the bot dies</h1>
+  <h1>From 1,785 to over 4 million lines by looking at how the bot dies</h1>
   <p class="lede">A heuristic Tetris bot with weights tuned by a genetic algorithm. The breakthrough did not come from more
   training or smarter rules but from recording thousands of lost games, measuring what predicts death, and adding the
   features that were missing. That worked twice: two board features took it to ~500,000 lines, three move features
-  then to over 2.5 million.</p>
+  then to over 4 million.</p>
   <div class="tiles" id="tiles"></div>
 </div>
 
@@ -319,7 +319,7 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
 
 <section id="moves">
   <div class="kicker">8 · Move features</div>
-  <h2>Three move features: about 5× more lines</h2>
+  <h2>Three move features: about 5× more lines, then 25% more</h2>
   <div class="prose">
     <p>The single_v4 analysis said the board features were used up, but it also showed <em>where</em> the holes come
     from: S and Z pieces make a hole in 12% of their moves (other pieces ~5%), and 93% of the hole moves by other pieces
@@ -353,10 +353,43 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
     <p class="caption" id="v7-diff-caption"></p>
     <div class="chart" id="c-v7-diff"></div>
   </div>
+  <div class="grid2">
+    <div class="figure">
+      <h3>Which move feature matters?</h3>
+      <p class="caption">single_v7 with one feature switched off, no retraining (splitting screen, 100 estimates, 95%
+      interval). Landing height carries the gain: without it, or with v4's height weight in its place, the tuned weights
+      fall apart. S/Z fit adds about 30% on top. Eroded cells already had weight 0.</p>
+      <div class="chart" id="c-v7-ablation"></div>
+    </div>
+    <div class="figure">
+      <h3>v8: only the weights that matter</h3>
+      <p class="caption" id="v8-caption"></p>
+      <div class="chart" id="c-v8"></div>
+    </div>
+  </div>
   <div class="callout"><strong>Conclusion:</strong> the gain came from new information, not from the optimizer. The
-  splitting estimate overstates single_v7 (it predicts ~6M lines), but it ranks the models correctly and the effect is
-  far outside the noise. Next: retrain without the zero-weight features (v8) and check whether the next-piece preview
-  removes the forced S/Z holes.</div>
+  splitting estimate overstates the size (it predicts ~6M lines for v7) but ranks the models correctly. Dropping the
+  zero weights and training on v7's own start boards gave single_v8, another +25%.</div>
+
+  <h3 style="margin-top:28px">What single_v7 dies of now</h3>
+  <div class="prose">
+    <p>The same failure analysis on 500 recorded single_v7 games (470 game overs, mean 4.0M lines;
+    <a href="analysis/single_v7/report.html">full report</a>):</p>
+    <ul id="v7-findings">
+      <li><strong>S/Z still make the most holes, but fewer:</strong> 9.5% of their moves (single_v4: 12%).</li>
+      <li><strong>Spirals start differently:</strong> the move right after the last healthy board made a hole in 29% of
+      games (single_v4: 56%). The surface degrades first, often a central tower, and the holes follow.</li>
+      <li><strong>One lead:</strong> hole depth (filled cells above holes) now adds information (+0.11 partial
+      correlation with dying sooner), while every candidate was below 0.02 for single_v4. single_v7 has its weight at 0
+      and v8 dropped it, so retraining with hole depth is the cheapest next test.</li>
+    </ul>
+  </div>
+  <div class="figure">
+    <h3>New information beyond single_v7's features</h3>
+    <p class="caption">Partial correlation with dying sooner, after removing what holes, bumpiness, wells and S/Z fit
+    explain (mid-game boards, 500 games). Same scale as the Discovery and Limits charts.</p>
+    <div class="chart" id="c-added-v7"></div>
+  </div>
 </section>
 
 <section id="method">
@@ -419,10 +452,11 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
   <div class="kicker">10 · Next</div>
   <h2>What the data suggests next</h2>
   <ol class="next prose">
-    <li><strong>v8: drop the dead weights.</strong> Retrain from single_v7 with only holes, bumpiness, wells, landing
-    height and S/Z fit (fewer genes, less noise), on start boards from single_v7's own play.</li>
-    <li><strong>Failure analysis of single_v7.</strong> What does it die of now that S/Z have a home?</li>
+    <li><strong>v9: hole depth back in.</strong> The single_v7 analysis says buried holes carry new information again;
+    retrain single_v8 with hole depth (and start boards from v8's play).</li>
     <li><strong>Lookahead.</strong> Use the next-piece preview, which targets the S/Z holes that are still forced.</li>
+    <li><strong>Higher piece caps.</strong> At 20M pieces a quarter of v8's games are cut off; comparisons need
+    either higher caps or the splitting estimate.</li>
     <li>Regime switching is concluded: it never beat one weight set.</li>
   </ol>
   <div class="callout">The method behind every chart here is written up in
@@ -520,10 +554,12 @@ function tiles() {
   const latestRepair = DATA.repair.length ? DATA.repair[DATA.repair.length - 1] : null;
   const rv = latestRepair && latestRepair.models.find(d => d.name === 'repair_v5');
   const full = DATA.optimizer && DATA.optimizer.full ? DATA.optimizer.full.models.find(d => d.name === 'single_v4') : null;
-  const v7 = DATA.v7 && DATA.v7.full ? DATA.v7.full.models.find(d => d.name === 'single_v7') : null;
+  const top = DATA.v8 && DATA.v8.full ? DATA.v8.full : DATA.v7 && DATA.v7.full ? DATA.v7.full : null;
+  const topName = top ? top.models[top.models.length - 1].name : null;
+  const v7 = top ? top.models.find(d => d.name === topName) : null;
   const bestMean = v7 ? v7.mean : full ? full.mean : best.mean;
-  const bestNote = v7 ? `single_v7, ${fmt(DATA.v7.full.settings.games)} held-out games, ${fmt(bestMean / base1.mean)}× the original` +
-      (v7.capped ? `; ${v7.capped} games hit the piece cap, so a lower bound` : '')
+  const bestNote = v7 ? `${topName}, ${fmt(top.settings.games)} held-out games, ${fmt(bestMean / base1.mean)}× the original` +
+      (v7.capped ? `; ${v7.capped} games hit the ${d3.format('.2s')(top.settings.max_pieces)}-piece cap, so a lower bound` : '')
     : `single_v4, ${full ? '1,000' : '50'} held-out games, ${Math.round(bestMean / base1.mean)}× the original`;
   const items = [
     ['Original model', fmt(base1.mean), 'lines per game (mean of 50 held-out games)'],
@@ -584,7 +620,7 @@ function noise() {
 let currentRun = null;
 function runButtons() {
   const box = document.getElementById('run-buttons');
-  if (!currentRun) currentRun = (DATA.runs.find(r => r.label === 'v7 single') || DATA.runs.find(r => r.label === 'v4 single'))?.id || DATA.runs[0].id;
+  if (!currentRun) currentRun = (DATA.runs.find(r => r.label === 'v8 single') || DATA.runs.find(r => r.label === 'v7 single') || DATA.runs.find(r => r.label === 'v4 single'))?.id || DATA.runs[0].id;
   box.innerHTML = DATA.runs.map(r => `<button type="button" data-id="${r.id}" aria-pressed="${r.id === currentRun}">${r.label}</button>`).join('');
   box.querySelectorAll('button').forEach(b => b.addEventListener('click', () => { currentRun = b.dataset.id; runButtons(); training(); }));
 }
@@ -904,8 +940,38 @@ function moves() {
   }
 }
 
+function movesMore() {
+  const ab = DATA.v7 && DATA.v7.ablation;
+  const names = { no_sz_fit: 'without S/Z fit', no_landing_height: 'without landing height', height_not_landing: "v4's height instead of landing height" };
+  if (ab) {
+    const rows = Object.entries(ab.models).filter(([, d]) => d.ratio != null).map(([n, d]) =>
+      ({ name: names[n] || n, diff: d.ratio - 1, lo: d.ratio_ci95[0] - 1, hi: d.ratio_ci95[1] - 1 }));
+    diffRows('c-v7-ablation', rows, d => d.name, { floor: -1 });
+  }
+  const v8 = DATA.v8;
+  if (v8 && (v8.screen || v8.full)) {
+    const rows = [];
+    if (v8.screen) {
+      const d = v8.screen.models.single_v8;
+      rows.push({ name: `splitting screen (${v8.screen.estimates})`, diff: d.ratio - 1, lo: d.ratio_ci95[0] - 1, hi: d.ratio_ci95[1] - 1 });
+    }
+    let note = '';
+    if (v8.full) {
+      const ref = v8.full.models[0], d = v8.full.models.find(m => m.name === 'single_v8');
+      rows.push({ name: `${fmt(v8.full.settings.games)} full games`, diff: d.diff / ref.mean, lo: d.diff_ci[0] / ref.mean, hi: d.diff_ci[1] / ref.mean });
+      note = ` Full games: ${d3.format('.3s')(ref.mean)} vs ${d3.format('.3s')(d.mean)} mean lines, single_v8 won ${d.wins} of ${d.wins + d.losses} pairs. ` +
+        `${d.capped} single_v8 and ${ref.capped} single_v7 games hit the ${d3.format('.2s')(v8.full.settings.max_pieces)}-piece cap, which hides part of the gap.`;
+    }
+    document.getElementById('v8-caption').textContent =
+      'single_v8 = single_v7 retrained with only holes, bumpiness, wells, landing height and S/Z fit (S/Z fit grew from 1.15 to 1.67), ' +
+      'on start boards from single_v7\'s own play. Change vs single_v7 with 95% interval.' + note;
+    diffRows('c-v8', rows, d => d.name, { floor: -0.2, keepOrder: true });
+  }
+  addedChart('c-added-v7', 'single_v7', ['hole_depth']);
+}
+
 function renderAll() {
-  tiles(); weights(); noise(); runButtons(); training(); discovery(); results(); regimes(); limits(); moves(); method();
+  tiles(); weights(); noise(); runButtons(); training(); discovery(); results(); regimes(); limits(); moves(); movesMore(); method();
   document.getElementById('footer').innerHTML =
     `Built ${DATA.built} from the experiment logs with <code>experiments/build_site.py</code>. ` +
     `Code and method: <a href="https://github.com/JCA374/tetris-heuristics">github.com/JCA374/tetris-heuristics</a>.`;

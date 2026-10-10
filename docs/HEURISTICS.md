@@ -210,7 +210,11 @@ What the single_v4 analysis found (October 2026), which led to the move features
   surface's fit for S/Z (`sz_fit`). Result (`single_v7`, trained from single_v4
   with splitting fitness): about **5× more lines** on held-out full games. The GA
   replaced `height` with `landing_height` (height weight → 0), gave `sz_fit`
-  +1.15, and left `eroded_cells` and `hole_depth` at 0.
+  +1.15, and left `eroded_cells` and `hole_depth` at 0. Ablation: landing
+  height carries the gain, S/Z fit adds ~30%. `single_v8` (only the 5 nonzero
+  weights, start boards from v7's play) added +25% on full games.
+- The single_v7 analysis (500 games) finds hole depth informative again
+  (+0.11 partial correlation with dying sooner), the next feature to test.
 
 ## Why scores need many games
 

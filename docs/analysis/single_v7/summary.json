@@ -1,0 +1,190 @@
+{
+ "model": "single_v7",
+ "games": 500,
+ "game_overs": 470,
+ "lines_mean": 3993849.516,
+ "lines_median": 2635945.5,
+ "departure_from_normal_p90": {
+  "holes": -133,
+  "bumpiness": null,
+  "cum_wells": null,
+  "sz_fit": null,
+  "agg_height": -137,
+  "max_height": -119,
+  "height_spread": null,
+  "rows_with_holes": -131,
+  "hole_depth": -138,
+  "max_col_holes": -108,
+  "row_transitions": -28,
+  "col_transitions": -125,
+  "max_well": null,
+  "deep_wells": null,
+  "near_full_rows": -135,
+  "surface_rough2": null,
+  "piece_fit": null
+ },
+ "n_snapshots": 420620,
+ "n_soon": 1189,
+ "model_eval_auc": 0.8034000020842045,
+ "feature_stats": {
+  "holes": {
+   "auc": 0.7926312357901653,
+   "partial_corr": null,
+   "spearman_like": 0.013003373683351041
+  },
+  "bumpiness": {
+   "auc": 0.6215947150669352,
+   "partial_corr": null,
+   "spearman_like": -0.0032174545600881276
+  },
+  "cum_wells": {
+   "auc": 0.6114155466485345,
+   "partial_corr": null,
+   "spearman_like": 0.004323258743258853
+  },
+  "sz_fit": {
+   "auc": 0.4777605161948556,
+   "partial_corr": null,
+   "spearman_like": -0.0032755022309114883
+  },
+  "agg_height": {
+   "auc": 0.7979171556137131,
+   "partial_corr": 0.0075034721495990265,
+   "spearman_like": -0.0028204952982692644
+  },
+  "max_height": {
+   "auc": 0.7962621189679777,
+   "partial_corr": 0.002081385387827912,
+   "spearman_like": -0.005633321865651787
+  },
+  "height_spread": {
+   "auc": 0.6124168150195245,
+   "partial_corr": 0.0011043062082617034,
+   "spearman_like": -0.0069664104280389525
+  },
+  "rows_with_holes": {
+   "auc": 0.7928177023131496,
+   "partial_corr": 0.017153376821709407,
+   "spearman_like": 0.016111063853339488
+  },
+  "hole_depth": {
+   "auc": 0.7946117113256277,
+   "partial_corr": -0.11157729294502965,
+   "spearman_like": 0.013970652164104735
+  },
+  "max_col_holes": {
+   "auc": 0.7774667179519202,
+   "partial_corr": 0.040724275276210864,
+   "spearman_like": 0.018047336433014715
+  },
+  "row_transitions": {
+   "auc": 0.6550727262952472,
+   "partial_corr": -0.0004422476442828861,
+   "spearman_like": -0.00530819927087987
+  },
+  "col_transitions": {
+   "auc": 0.7914600207334836,
+   "partial_corr": 0.05451540641362083,
+   "spearman_like": 0.01245951410423505
+  },
+  "max_well": {
+   "auc": 0.6046639832911205,
+   "partial_corr": 0.007180071238981098,
+   "spearman_like": 0.029387756492855754
+  },
+  "deep_wells": {
+   "auc": 0.5595620141868717,
+   "partial_corr": -0.0027125094029827298,
+   "spearman_like": -0.04219318224383182
+  },
+  "near_full_rows": {
+   "auc": 0.7868549694579119,
+   "partial_corr": 0.007894987163074891,
+   "spearman_like": -0.0003546642149198546
+  },
+  "surface_rough2": {
+   "auc": 0.6212516183891157,
+   "partial_corr": -0.010370571028345908,
+   "spearman_like": -0.002949948640991967
+  },
+  "piece_fit": {
+   "auc": 0.47570069891975625,
+   "partial_corr": -0.0005262880637975897,
+   "spearman_like": -0.0037090638523836162
+  }
+ },
+ "onset": {
+  "healthy_holes_max": 1.0,
+  "healthy_height_max": 31.0,
+  "games_with_onset": 444,
+  "games_without_healthy_board": 26,
+  "distance_median": 135.0,
+  "piece_share": {
+   "I": 0.05630630630630631,
+   "O": 0.19369369369369369,
+   "T": 0.11936936936936937,
+   "S": 0.21621621621621623,
+   "Z": 0.1981981981981982,
+   "J": 0.0945945945945946,
+   "L": 0.12162162162162163
+  },
+  "onset_move_made_hole": 0.2882882882882883
+ },
+ "killer_share": {
+  "I": 0.05531914893617021,
+  "O": 0.1425531914893617,
+  "T": 0.19148936170212766,
+  "S": 0.13191489361702127,
+  "Z": 0.16382978723404254,
+  "J": 0.1723404255319149,
+  "L": 0.1425531914893617
+ },
+ "i_drought_mean": 11.27659574468085,
+ "hole_rate_by_piece": {
+  "I": 0.00600158532442532,
+  "O": 0.06563868443119351,
+  "T": 0.04690099833610649,
+  "S": 0.09434047554470662,
+  "Z": 0.09817652676094767,
+  "J": 0.05009654020769191,
+  "L": 0.05477929501429025
+ },
+ "final_board_medians": {
+  "holes": 19.0,
+  "bumpiness": 6.0,
+  "cum_wells": 3.0,
+  "sz_fit": 2.0,
+  "agg_height": 190.0,
+  "max_height": 20.0,
+  "height_spread": 3.0,
+  "rows_with_holes": 18.0,
+  "hole_depth": 157.0,
+  "max_col_holes": 6.0,
+  "row_transitions": 48.0,
+  "col_transitions": 35.0,
+  "max_well": 2.0,
+  "deep_wells": 0.0,
+  "near_full_rows": 19.0,
+  "surface_rough2": 9.0,
+  "piece_fit": 7.0
+ },
+ "midgame_medians": {
+  "holes": 0.0,
+  "bumpiness": 8.0,
+  "cum_wells": 1.0,
+  "sz_fit": 2.0,
+  "agg_height": 20.0,
+  "max_height": 4.0,
+  "height_spread": 4.0,
+  "rows_with_holes": 0.0,
+  "hole_depth": 0.0,
+  "max_col_holes": 0.0,
+  "row_transitions": 44.0,
+  "col_transitions": 10.0,
+  "max_well": 1.0,
+  "deep_wells": 0.0,
+  "near_full_rows": 1.0,
+  "surface_rough2": 13.0,
+  "piece_fit": 7.0
+ }
+}
