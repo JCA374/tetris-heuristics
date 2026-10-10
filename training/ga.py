@@ -53,7 +53,7 @@ WEIGHT_BOUNDS = {
     'holes': (-10.0, 0.0),
     'bumpiness': (-5.0, 0.0),
     'wells': (-5.0, 0.0),
-    'hole_depth': (-5.0, 0.0),
+    'hole_depth': (-5.0, 5.0),        # v7 hit the 0 bound; the v7 analysis says it matters, sign unclear
     'landing_height': (-5.0, 0.0),
     'eroded_cells': (0.0, 5.0),
     'sz_fit': (0.0, 5.0),
