@@ -3,7 +3,7 @@
 A Tetris bot that scores every possible drop with a weighted sum of features:
 board features (holes, bumpiness, wells, ...) and move features (landing
 height, S/Z fit). The weights are tuned by a genetic algorithm. The project has
-gone from 1,785 to **over 4 million lines per game** by recording how the bot
+gone from 1,785 to **about 6 million lines per game** by recording how the bot
 dies, finding the features that predict it, and measuring every change on
 held-out games. That worked twice: two board features took it to ~500,000
 lines, three move features then multiplied that by about 5, and retraining
@@ -106,7 +106,8 @@ paired). `*` = the 95% CI of the paired difference excludes 0.
 
 | model | features | mean lines | median | note |
 |---|---|---:|---:|---|
-| `single_v8` | 5 (holes, bumpiness, wells, landing height, S/Z fit) | **≥ 4,280,028** | 3,656,003 | 243 games vs v7, 20M-piece cap: 66 capped (v7: 28) |
+| `single_v8` | 5 (holes, bumpiness, wells, landing height, S/Z fit) | **≥ 5,879,365** | 4,180,864 | 104 games vs v9, 50M-piece cap: 4 capped; 243 games vs v7, 20M cap: ≥ 4,280,028 (66 capped) |
+| `single_v9` | 6 (v8 + hole depth, which stayed 0) | ≥ 6,227,082 | 3,799,098 | same 104 games: +6% vs v8, not significant (53/51 wins) |
 | `single_v7` | 8 (+landing height, eroded cells, S/Z fit) | ≥ 2,498,084 | 2,831,910 | 200 games vs v4, 10M-piece cap: 82 capped; same 243 games as v8: ≥ 3,415,456 |
 | `single_v4` | 5 (no lines) | 493,138 | 336,772 | 1,000 games, 10M-piece cap (50 games: 413,254) |
 | `single_v3_gen11` | 6 (lines ≈ 0) | 430,538 | 333,190 | 50 games; same model as v4 in practice |
@@ -175,7 +176,13 @@ generations × 30 individuals × 3 estimates, 45 minutes):
   holes but fewer (9.5% of their moves, v4 12%); spirals now start with the
   surface degrading (the first move after the last healthy board made a hole
   in 29% of games, v4 56%); **hole depth adds information again (+0.11)**,
-  while v7/v8 have it at 0. Next test: v9 = v8 + hole depth.
+  while v7/v8 have it at 0.
+- **single_v9 = v8 + hole depth** (allowed either sign, start boards from v8's
+  play): the GA kept hole depth at **0**. Splitting screen 1.12× (0.91–1.36);
+  104 full-game pairs, 50M-piece cap: +6% (95% CI −20%..+31%), 53/51 wins. No
+  difference, so single_v8 stays the best model. Hole depth predicts trouble but
+  does not help choose moves. The same games put v8 at 5.9M mean lines (4 of
+  104 capped). Next: the next-piece preview (lookahead).
 
 ### Regime switching (concluded)
 

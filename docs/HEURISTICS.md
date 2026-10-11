@@ -214,7 +214,10 @@ What the single_v4 analysis found (October 2026), which led to the move features
   height carries the gain, S/Z fit adds ~30%. `single_v8` (only the 5 nonzero
   weights, start boards from v7's play) added +25% on full games.
 - The single_v7 analysis (500 games) finds hole depth informative again
-  (+0.11 partial correlation with dying sooner), the next feature to test.
+  (+0.11 partial correlation with dying sooner). `single_v9` tested it (v8 +
+  hole depth, either sign allowed): the GA kept its weight at 0, and 104
+  paired full games show no difference (+6%, 95% CI −20%..+31%). A signal that
+  predicts trouble is not necessarily one that helps choose a move.
 
 ## Why scores need many games
 

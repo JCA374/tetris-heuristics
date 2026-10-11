@@ -45,6 +45,7 @@ RUNS = {
     'runs/20261009_154956_single_cem_split': ('v6 CEM', 'single model, splitting fitness, cross-entropy'),
     'runs/20261009_201504_single_split': ('v7 single', '8 features (+landing height, eroded cells, S/Z fit), splitting fitness, GA'),
     'runs/20261009_214729_single_split': ('v8 single', '5 nonzero features of v7, start boards from v7, splitting fitness, GA'),
+    'runs/20261010_101554_single_split': ('v9 single', 'v8 + hole depth (either sign), start boards from v8, splitting fitness, GA'),
 }
 OPTIMIZER_SCREEN = 'results/compare_splitting_20261009_162211.json'   # 150 splitting estimates
 OPTIMIZER_FULL = 'results/compare_20261009_180915.json'               # 1000 full games, v4 vs v6 GA
@@ -52,6 +53,8 @@ V7_SCREEN = 'results/compare_splitting_20261009_210541.json'          # 200 spli
 V7_PAIR = {'single_v4', 'single_v7'}                                   # full games: newest compare of exactly these
 V8_SCREEN = 'results/compare_splitting_20261009_232400.json'          # 200 splitting estimates, v7 vs v8
 V8_PAIR = {'single_v7', 'single_v8'}
+V9_SCREEN = 'results/compare_splitting_20261010_110446.json'          # 200 splitting estimates, v8 vs v9
+V9_PAIR = {'single_v8', 'single_v9'}                                   # 104 games, 50M cap (stopped early)
 ABLATION_V7 = 'results/compare_splitting_20261010_022913.json'        # v7 with one move feature removed
 # Measured with tetris/splitting.py-style episodes on single_v4 from clean boards (160 per level)
 LADDER = [{'holes': 2, 'pieces': 108, 'p_death': 0.0}, {'holes': 4, 'pieces': 518, 'p_death': 0.001},
@@ -69,7 +72,7 @@ MAIN_COMPARE = 'results/compare_20261008_235146.json'      # all models, 50 game
 ABLATION_V4 = 'results/compare_20261009_102631.json'       # drop one feature from single_v4
 LINES_ABLATION = 'runs/ablation/compare_20261008_210928.json'
 REPAIR_COMPARES = ['results/compare_20261009_130945.json']  # + the newest 1000-game one if present
-MODELS = ['baseline_single_v1', 'single_v2', 'regime_v2', 'single_v4', 'regime_v4', 'repair_v5', 'single_v7', 'single_v8']
+MODELS = ['baseline_single_v1', 'single_v2', 'regime_v2', 'single_v4', 'regime_v4', 'repair_v5', 'single_v7', 'single_v8', 'single_v9']
 
 
 def load_json(path):
@@ -268,6 +271,7 @@ def collect():
             repair.append(path)
     v7_full = newest_compare(V7_PAIR)
     v8_full = newest_compare(V8_PAIR)
+    v9_full = newest_compare(V9_PAIR)
     data = {
         'built': date.today().isoformat(),
         'runs': training_runs(),
@@ -293,8 +297,12 @@ def collect():
             'screen': load_json(V8_SCREEN) if os.path.exists(V8_SCREEN) else None,
             'full': compare_summary(v8_full) if v8_full else None,
         },
+        'v9': {
+            'screen': load_json(V9_SCREEN) if os.path.exists(V9_SCREEN) else None,
+            'full': compare_summary(v9_full) if v9_full else None,
+        },
     }
-    for screen in (data['optimizer']['screen'], data['v7']['screen'], data['v7']['ablation'], data['v8']['screen']):
+    for screen in (data['optimizer']['screen'], data['v7']['screen'], data['v7']['ablation'], data['v8']['screen'], data['v9']['screen']):
         for d in screen['models'].values() if screen else []:
             d.pop('log_pieces', None)
     return data

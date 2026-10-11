@@ -8,8 +8,9 @@ Heuristic Tetris AI (no deep learning). Every drop is scored with a weighted sum
 of features: board features (height, holes, bumpiness, wells, hole_depth) and
 move features (landing_height, eroded_cells, sz_fit; added in v7, ~5× more
 lines). `lines` exists but is 0 in current models. Best model: `single_v8`
-(5 weights: holes, bumpiness, wells, landing_height, sz_fit; ≥ 4.3M lines).
-Next lead from the v7 failure analysis: hole_depth adds information again. Weights are tuned with a GA
+(5 weights: holes, bumpiness, wells, landing_height, sz_fit; ~5.9M lines at a 50M-piece cap).
+single_v9 (+ hole_depth) tested the v7 analysis lead: the GA kept hole_depth at 0, no gain.
+Next: lookahead (next-piece preview). Weights are tuned with a GA
 (default) or the cross-entropy method. **Focus: the single model (one weight set).** The
 regime-switching research is concluded (never beat the single model); keep its
 code working (old models must load and play) but do not develop it further.

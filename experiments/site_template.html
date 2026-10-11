@@ -126,11 +126,11 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
 <main>
 <div class="hero">
   <div class="kicker">Data-driven learning, documented</div>
-  <h1>From 1,785 to over 4 million lines by looking at how the bot dies</h1>
+  <h1>From 1,785 to over 5 million lines by looking at how the bot dies</h1>
   <p class="lede">A heuristic Tetris bot with weights tuned by a genetic algorithm. The breakthrough did not come from more
   training or smarter rules but from recording thousands of lost games, measuring what predicts death, and adding the
   features that were missing. That worked twice: two board features took it to ~500,000 lines, three move features
-  then to over 4 million.</p>
+  then to over 5 million.</p>
   <div class="tiles" id="tiles"></div>
 </div>
 
@@ -381,7 +381,8 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
       games (single_v4: 56%). The surface degrades first, often a central tower, and the holes follow.</li>
       <li><strong>One lead:</strong> hole depth (filled cells above holes) now adds information (+0.11 partial
       correlation with dying sooner), while every candidate was below 0.02 for single_v4. single_v7 has its weight at 0
-      and v8 dropped it, so retraining with hole depth is the cheapest next test.</li>
+      and v8 dropped it, so retraining with hole depth was the cheapest next test. <strong>Result (v9, below): the GA kept
+      its weight at 0.</strong></li>
     </ul>
   </div>
   <div class="figure">
@@ -390,6 +391,25 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
     explain (mid-game boards, 500 games). Same scale as the Discovery and Limits charts.</p>
     <div class="chart" id="c-added-v7"></div>
   </div>
+  <div class="grid2">
+    <div class="figure">
+      <h3>v9: does hole depth help? No</h3>
+      <p class="caption" id="v9-caption"></p>
+      <div class="chart" id="c-v9"></div>
+    </div>
+    <div class="prose">
+      <h3>Why the lead failed</h3>
+      <p>single_v9 is single_v8 retrained with hole depth allowed either sign, on start boards from v8's play. The GA
+      left hole depth at exactly 0 and only nudged the other weights (S/Z fit 1.67 → 1.81).</p>
+      <p>Hole depth <em>predicts</em> trouble (deep holes come before death), but that is not the same as helping
+      <em>choose a move</em>. A likely reason: moves that bury holes deeper are already penalised by the holes and landing-height weights. A warning signal
+      is a lead, and this one did not survive the test.</p>
+      <p>The v9 games also measured single_v8 with a 50M-piece cap: <strong>5.9M mean lines</strong> (4 of 104 games
+      capped), higher than the 4.3M lower bound from the 20M-cap games.</p>
+    </div>
+  </div>
+  <div class="callout"><strong>Conclusion:</strong> single_v8 stays the best model. Board features are used up again;
+  the remaining forced S/Z holes point to the next-piece preview.</div>
 </section>
 
 <section id="method">
@@ -402,6 +422,18 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
     <p><strong>The idea: split the rare event into common steps.</strong> The bot never dies out of nowhere. It climbs
     a ladder of trouble, and at every rung it either recovers to a clean board or climbs on:</p>
     <p class="ladder">clean board → 6 holes → 10 holes → 14 holes → 18 holes → game over</p>
+    <p><strong>Which positions does training see? Mostly difficult ones, but its own.</strong></p>
+    <ul>
+      <li><strong>Start boards are healthy.</strong> Hole-free mid-game snapshots from the previous model's recorded games,
+      at least 20,000 pieces before that game ended. They are refreshed for every new model (v8 trained on v7's
+      boards, v9 on v8's), so they look like the play being improved.</li>
+      <li><strong>Almost all episodes start in trouble.</strong> One estimate plays 40 episodes from healthy boards, then
+      keeps up to 40 boards at each of the 4 trouble levels and plays 8 continuations from each: up to 1,280 episodes
+      from boards with 6+ holes against 40 from clean ones.</li>
+      <li><strong>Each candidate makes its own trouble.</strong> The difficult boards are reached by the weights being
+      evaluated, not taken from a fixed set. A fixed set of recorded crisis boards was tried and overfit: 76% recovery
+      on those boards, 71% on new ones, the same as the model it started from.</li>
+    </ul>
     <p><strong>One estimate, step by step</strong> (illustrative numbers, roughly single_v4):</p>
     <ol>
       <li><strong>Time to first trouble.</strong> Start from clean boards taken from real games and play until the
@@ -452,11 +484,11 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
   <div class="kicker">10 · Next</div>
   <h2>What the data suggests next</h2>
   <ol class="next prose">
-    <li><strong>v9: hole depth back in.</strong> The single_v7 analysis says buried holes carry new information again;
-    retrain single_v8 with hole depth (and start boards from v8's play).</li>
-    <li><strong>Lookahead.</strong> Use the next-piece preview, which targets the S/Z holes that are still forced.</li>
-    <li><strong>Higher piece caps.</strong> At 20M pieces a quarter of v8's games are cut off; comparisons need
-    either higher caps or the splitting estimate.</li>
+    <li><strong>Lookahead.</strong> Use the next-piece preview, which targets the S/Z holes that are still forced.
+    First a cheap screen (v8's weights with lookahead, no retraining); retrain only if it clearly helps.</li>
+    <li><strong>Failure analysis of single_v8</strong> if lookahead does not help: v9 showed hole depth is not the
+    missing piece.</li>
+    <li><strong>Piece caps of 50M.</strong> At 20M pieces a quarter of v8's games were cut off; at 50M only 4%.</li>
     <li>Regime switching is concluded: it never beat one weight set.</li>
   </ol>
   <div class="callout">The method behind every chart here is written up in
@@ -554,8 +586,9 @@ function tiles() {
   const latestRepair = DATA.repair.length ? DATA.repair[DATA.repair.length - 1] : null;
   const rv = latestRepair && latestRepair.models.find(d => d.name === 'repair_v5');
   const full = DATA.optimizer && DATA.optimizer.full ? DATA.optimizer.full.models.find(d => d.name === 'single_v4') : null;
-  const top = DATA.v8 && DATA.v8.full ? DATA.v8.full : DATA.v7 && DATA.v7.full ? DATA.v7.full : null;
-  const topName = top ? top.models[top.models.length - 1].name : null;
+  // Best model is single_v8; its 50M-cap games from the v9 compare cut off fewer games than the 20M-cap v7 compare
+  const top = DATA.v9 && DATA.v9.full ? DATA.v9.full : DATA.v8 && DATA.v8.full ? DATA.v8.full : DATA.v7 && DATA.v7.full ? DATA.v7.full : null;
+  const topName = top ? (top === (DATA.v9 && DATA.v9.full) ? 'single_v8' : top.models[top.models.length - 1].name) : null;
   const v7 = top ? top.models.find(d => d.name === topName) : null;
   const bestMean = v7 ? v7.mean : full ? full.mean : best.mean;
   const bestNote = v7 ? `${topName}, ${fmt(top.settings.games)} held-out games, ${fmt(bestMean / base1.mean)}× the original` +
@@ -940,6 +973,24 @@ function moves() {
   }
 }
 
+function versus(chartId, captionId, v, name, refName, caption) {
+  if (!v || !(v.screen || v.full)) return;
+  const rows = [];
+  if (v.screen) {
+    const d = v.screen.models[name];
+    rows.push({ name: `splitting screen (${v.screen.estimates})`, diff: d.ratio - 1, lo: d.ratio_ci95[0] - 1, hi: d.ratio_ci95[1] - 1 });
+  }
+  let note = '';
+  if (v.full) {
+    const ref = v.full.models.find(m => m.name === refName), d = v.full.models.find(m => m.name === name);
+    rows.push({ name: `${fmt(v.full.settings.games)} full games`, diff: d.diff / ref.mean, lo: d.diff_ci[0] / ref.mean, hi: d.diff_ci[1] / ref.mean });
+    note = ` Full games: ${d3.format('.3s')(ref.mean)} vs ${d3.format('.3s')(d.mean)} mean lines, ${name} won ${d.wins} of ${d.wins + d.losses} pairs; ` +
+      `${d.capped} ${name} and ${ref.capped} ${refName} games hit the ${d3.format('.2s')(v.full.settings.max_pieces)}-piece cap.`;
+  }
+  document.getElementById(captionId).textContent = caption + note;
+  diffRows(chartId, rows, d => d.name, { floor: -0.3, keepOrder: true });
+}
+
 function movesMore() {
   const ab = DATA.v7 && DATA.v7.ablation;
   const names = { no_sz_fit: 'without S/Z fit', no_landing_height: 'without landing height', height_not_landing: "v4's height instead of landing height" };
@@ -948,6 +999,9 @@ function movesMore() {
       ({ name: names[n] || n, diff: d.ratio - 1, lo: d.ratio_ci95[0] - 1, hi: d.ratio_ci95[1] - 1 }));
     diffRows('c-v7-ablation', rows, d => d.name, { floor: -1 });
   }
+  versus('c-v9', 'v9-caption', DATA.v9, 'single_v9', 'single_v8',
+    'single_v9 = single_v8 retrained with hole depth (allowed either sign), on start boards from single_v8\'s own play. ' +
+    'The GA kept hole depth at 0. Change vs single_v8 with 95% interval; the full games were stopped after 104 pairs.');
   const v8 = DATA.v8;
   if (v8 && (v8.screen || v8.full)) {
     const rows = [];
