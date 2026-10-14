@@ -31,6 +31,7 @@ python demo.py                                  # watch the best model in models
 python demo.py --model models/single_v8.json
 python demo.py --list                           # all models and their weights
 python demo_pygame.py --model models/single_v8.json   # left half of the screen; UP/DOWN speed, M = max (~100k moves/s on an idle machine); slows down by itself at 14 holes
+python experiments/make_video.py                # ~105 s silent explainer -> docs/video/tetris_explainer.mp4
 
 python -m pytest tests                          # test suite (~1 min)
 ```

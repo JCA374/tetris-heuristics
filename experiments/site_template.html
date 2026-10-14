@@ -76,6 +76,7 @@ section > h2 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; }
 .muted { color: var(--ink-2); }
 .figure { margin: 22px 0 8px; }
 .figure h3 { font-size: 17px; margin: 0 0 2px; }
+video.explainer { display: block; width: 100%; max-width: 960px; aspect-ratio: 16 / 9; border-radius: 8px; background: #000; }
 .figure .caption { font-size: 14px; color: var(--ink-2); margin: 0 0 10px; max-width: 760px; }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 12px 28px; }
 .chart { width: 100%; overflow: hidden; }
@@ -132,6 +133,12 @@ footer { color: var(--ink-3); font-size: 13px; padding: 40px 0; border-top: 1px 
   features that were missing. That worked twice: two board features took it to ~500,000 lines, three move features
   then to over 5 million.</p>
   <div class="tiles" id="tiles"></div>
+  <div class="figure">
+    <h3>The project in 105 seconds</h3>
+    <p class="caption">Silent explainer: how the bot scores moves, how the genetic algorithm learns the weights, how fitness
+    is measured, and the results. Built by <code>experiments/make_video.py</code>.</p>
+    <video class="explainer" src="video/tetris_explainer.mp4" controls preload="metadata" playsinline></video>
+  </div>
 </div>
 
 <section id="bot">
